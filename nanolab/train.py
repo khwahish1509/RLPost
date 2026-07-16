@@ -167,6 +167,46 @@ def batch_indices(seed: int, step: int, dataset_size: int, batch_size: int) -> l
     return rng.sample(range(dataset_size), min(batch_size, dataset_size))
 
 
+def grpo_backward(
+    model,
+    seqs,
+    completion_ids,
+    advantages: list[float],
+    pad_token_id: int,
+    micro_batch_size: int,
+) -> float:
+    """Advantage-weighted NLL over completion tokens; backpropagates gradients.
+
+    The caller owns zero_grad / clip / optimizer.step. Micro-batched so long
+    batches fit in memory; gradients accumulate across micro-batches.
+    """
+    import torch
+
+    device = seqs.device
+    adv = torch.tensor(advantages, dtype=torch.float32, device=device)
+    total_loss = 0.0
+    n_micro = 0
+    for i in range(0, seqs.shape[0], micro_batch_size):
+        s = seqs[i : i + micro_batch_size]
+        comp = completion_ids[i : i + micro_batch_size]
+        a = adv[i : i + micro_batch_size]
+        attn = (s != pad_token_id).long()
+        logits = model(input_ids=s, attention_mask=attn).logits
+        comp_start = s.shape[1] - comp.shape[1]
+        # logits at position t predict token t+1
+        logits = logits[:, comp_start - 1 : -1, :]
+        logprobs = torch.log_softmax(logits.float(), dim=-1)
+        token_lp = torch.gather(logprobs, 2, comp.unsqueeze(-1)).squeeze(-1)
+        mask = (comp != pad_token_id).float()
+        seq_lp = (token_lp * mask).sum(dim=1)
+        denom = mask.sum().clamp(min=1.0)
+        loss = -(a * seq_lp).sum() / denom
+        loss.backward()
+        total_loss += float(loss.detach())
+        n_micro += 1
+    return total_loss / max(n_micro, 1)
+
+
 # ── environment scoring (offline; single-turn only) ─────────────────────────
 
 
@@ -365,35 +405,16 @@ def train(config_path: str | Path, resume: bool = False) -> int:
         return texts, seqs, completion_ids
 
     def grpo_step(seqs, completion_ids, advantages) -> float:
-        """Advantage-weighted NLL over completion tokens, micro-batched."""
-        adv = torch.tensor(advantages, dtype=torch.float32, device=device)
-        pad_id = tokenizer.pad_token_id
-        total_loss = 0.0
-        n_micro = 0
         optimizer.zero_grad(set_to_none=True)
-        for i in range(0, seqs.shape[0], config.micro_batch_size):
-            s = seqs[i : i + config.micro_batch_size]
-            comp = completion_ids[i : i + config.micro_batch_size]
-            a = adv[i : i + config.micro_batch_size]
-            attn = (s != pad_id).long()
-            logits = model(input_ids=s, attention_mask=attn).logits
-            comp_start = s.shape[1] - comp.shape[1]
-            # logits at position t predict token t+1
-            logits = logits[:, comp_start - 1 : -1, :]
-            logprobs = torch.log_softmax(logits.float(), dim=-1)
-            token_lp = torch.gather(logprobs, 2, comp.unsqueeze(-1)).squeeze(-1)
-            mask = (comp != pad_id).float()
-            seq_lp = (token_lp * mask).sum(dim=1)
-            denom = mask.sum().clamp(min=1.0)
-            loss = -(a * seq_lp).sum() / denom
-            loss.backward()
-            total_loss += float(loss.detach())
-            n_micro += 1
+        loss = grpo_backward(
+            model, seqs, completion_ids, advantages,
+            tokenizer.pad_token_id, config.micro_batch_size,
+        )
         torch.nn.utils.clip_grad_norm_(
             (p for p in model.parameters() if p.requires_grad), config.max_grad_norm
         )
         optimizer.step()
-        return total_loss / max(n_micro, 1)
+        return loss
 
     def save_checkpoint(step: int) -> str:
         path = Path("adapters") / f"run{run_id}" / f"step{step:05d}"

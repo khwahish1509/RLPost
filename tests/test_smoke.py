@@ -106,6 +106,45 @@ def test_eval_list_empty(tmp_db):
     assert "no eval runs" in result.output
 
 
+def test_grpo_backward_moves_weights_in_the_right_direction(tmp_db):
+    """One GRPO step on a tiny random model: weights must change and the
+    positively-advantaged sequence must become more likely. Skips on CI
+    (torch is a GPU-box dependency, not a project one)."""
+    torch = pytest.importorskip("torch")
+    transformers = pytest.importorskip("transformers")
+    from nanolab.train import grpo_backward
+
+    torch.manual_seed(0)
+    config = transformers.GPT2Config(
+        n_layer=2, n_head=2, n_embd=32, vocab_size=128, n_positions=64
+    )
+    model = transformers.GPT2LMHeadModel(config)
+    pad_id = 0
+
+    # 2 fake sequences: 4 prompt tokens + 4 completion tokens
+    seqs = torch.tensor([[5, 6, 7, 8, 20, 21, 22, 23], [5, 6, 7, 8, 40, 41, 42, 43]])
+    completion_ids = seqs[:, 4:]
+    advantages = [1.0, -1.0]
+
+    def lp():
+        with torch.no_grad():
+            logits = model(input_ids=seqs).logits[:, 3:-1, :]
+            logprobs = torch.log_softmax(logits.float(), dim=-1)
+            return torch.gather(logprobs, 2, completion_ids.unsqueeze(-1)).squeeze(-1).sum(1)
+
+    before = lp()
+    w0 = model.transformer.h[0].attn.c_attn.weight.detach().clone()
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    loss = grpo_backward(model, seqs, completion_ids, advantages, pad_id, 2)
+    optimizer.step()
+    after = lp()
+
+    assert loss == loss  # finite, not NaN
+    assert (model.transformer.h[0].attn.c_attn.weight - w0).norm() > 0
+    assert after[0] > before[0]  # rewarded sequence more likely
+    assert after[1] < before[1]  # punished sequence less likely
+
+
 # ── inference station (network/vllm-free) ───────────────────────────────────
 
 
