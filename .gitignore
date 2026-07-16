@@ -1,0 +1,24 @@
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# nanolab artifacts (every phase ends in an artifact, but not in git)
+results/
+adapters/
+*.db
+*.sqlite
+
+# reference clones (verifiers, prime-rl, prime-cli) — clone locally, never commit
+reference/
+
+# local response/rollout caches
+.cache/
+
+# secrets
+.env
