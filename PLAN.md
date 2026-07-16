@@ -61,15 +61,18 @@ Done when: `nanolab env install primeintellect/alphabet-sort && nanolab env list
 
 ### Phase 2 — Evaluation station (1 week)
 
-- [ ] `evaluate.py`: async rollout runner using verifiers' env interface against any OpenAI-compatible endpoint
-- [ ] Rate-limit pacing + retries (free tiers throttle; treat throttling as normal, not an error)
-- [ ] On-disk response cache keyed by hash(env, task, model, params) — repeat runs are instant
-- [ ] Resume: an interrupted eval continues where it stopped
-- [ ] Rubric scoring → samples + eval_runs rows + ledger tokens
-- [ ] `nanolab eval run <env> -m <model> -n 20 -r 3`, `eval list`, `eval show <id>` with per-metric breakdown
-- [ ] `report.py` v1: leaderboard.html from db
+- [x] `evaluate.py`: rollout runner against any OpenAI-compatible endpoint — builds the same EvalConfig vf-eval builds and executes verifiers' own `run_evaluation`, so the code path is shared by construction
+- [x] Rate-limit pacing + retries (defaults: max_concurrent 4, max_retries 10; throttled rollouts are recorded, not crashed on)
+- [x] On-disk cache keyed by hash(env, model, params, n, r, seed) — an identical completed config is served from the db in <100ms; `--force` re-runs
+- [x] Resume: `--resume` finds the newest incomplete results dir for the config and continues where it stopped (verifiers-native)
+- [x] Rubric scoring → samples + eval_runs rows + ledger tokens
+- [x] `nanolab eval run <env> -m <model> -n 20 -r 3`, `eval list`, `eval show <id>` with per-metric breakdown
+- [x] `report.py` v1: leaderboard.html from db
+- [ ] **THE ANCHOR** (blocked on free-tier daily quota, 20 req/day/model): on an identical config, `nanolab eval run` matches `vf-eval`. Command pair, run after quota reset:
+  `vf-eval alphabet-sort -k GEMINI_API_KEY -b https://generativelanguage.googleapis.com/v1beta/openai/ -m gemini-2.0-flash -n 5 -r 1 -c 1 -T 0.0 --disable-tui` then
+  `nanolab eval run alphabet-sort -m gemini-2.0-flash -n 5 -r 1 -c 1 -T 0.0 --force`
 
-Done when (**THE ANCHOR**): on an identical config (env, model, seed, n), `nanolab eval run` matches `vf-eval`'s numbers. Every later refactor must re-pass this check.
+Done when (**THE ANCHOR**): on an identical config (env, model, seed, n), `nanolab eval run` matches `vf-eval`'s numbers. Every later refactor must re-pass this check. (Informal signal already: run #1's clean per-example rewards reproduce Phase 0's vf-eval values exactly.)
 
 ### Phase 3 — Training station bring-up (1 week)
 
