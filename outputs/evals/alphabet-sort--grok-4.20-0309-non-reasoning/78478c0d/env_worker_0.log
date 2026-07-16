@@ -1,0 +1,9 @@
+2026-07-16 10:25:16 - verifiers.utils.env_utils - INFO - Loading environment: alphabet-sort
+2026-07-16 10:25:16 - verifiers.utils.env_utils - INFO - Using default args: min_names_per_turn=1, dataset_split='train', dataset_name='kalomaze/alphabetic-arxiv-authors-it1', min_turns=1, max_names_per_turn=5, power_per_turn=True, similarity_power=4, seed=1337420, max_turns=3
+2026-07-16 10:25:16 - verifiers.utils.env_utils - INFO - Successfully loaded environment 'alphabet-sort'
+2026-07-16 10:25:16 - verifiers.utils.thread_utils - INFO - Scaled default executor and 0 registered executor(s) ()
+2026-07-16 10:25:16 - verifiers.serve.server.env_worker.EnvWorker - INFO - Initialized worker alphabet-sort-0 on ipc:///tmp/vf-4033592815e6-alphabet-sort-0
+2026-07-16 10:25:16 - verifiers.utils.thread_utils - INFO - Scaled default executor and 0 registered executor(s) ()
+2026-07-16 10:25:16 - verifiers.serve.server.env_worker.EnvWorker - INFO - Starting worker alphabet-sort-0
+2026-07-16 10:25:24 - verifiers.utils.process_utils - INFO - Death pipe closed — parent is gone, sending SIGTERM to self
+2026-07-16 10:25:24 - verifiers.serve.server.env_worker.EnvWorker - INFO - Shut down worker alphabet-sort-0

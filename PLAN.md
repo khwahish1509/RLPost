@@ -68,11 +68,11 @@ Done when: `nanolab env install primeintellect/alphabet-sort && nanolab env list
 - [x] Rubric scoring → samples + eval_runs rows + ledger tokens
 - [x] `nanolab eval run <env> -m <model> -n 20 -r 3`, `eval list`, `eval show <id>` with per-metric breakdown
 - [x] `report.py` v1: leaderboard.html from db
-- [ ] **THE ANCHOR** (blocked on free-tier daily quota, 20 req/day/model): on an identical config, `nanolab eval run` matches `vf-eval`. Command pair, run after quota reset:
-  `vf-eval alphabet-sort -k GEMINI_API_KEY -b https://generativelanguage.googleapis.com/v1beta/openai/ -m gemini-2.0-flash -n 5 -r 1 -c 1 -T 0.0 --disable-tui` then
-  `nanolab eval run alphabet-sort -m gemini-2.0-flash -n 5 -r 1 -c 1 -T 0.0 --force`
+- [x] **THE ANCHOR — PASSED 2026-07-16**: identical config (alphabet-sort, grok-4.20-0309-non-reasoning, n=10, r=1, T=0.0, c=1) gives identical results on both sides — avg 0.875, std 0.216, per-example rewards equal to every decimal. Re-pass command pair:
+  `vf-eval alphabet-sort -k XAI_API_KEY -b https://api.x.ai/v1 -m grok-4.20-0309-non-reasoning -n 10 -r 1 -c 1 -T 0.0 --disable-tui` then
+  `nanolab eval run alphabet-sort -m grok-4.20-0309-non-reasoning -n 10 -r 1 -c 1 -T 0.0 --force`
 
-Done when (**THE ANCHOR**): on an identical config (env, model, seed, n), `nanolab eval run` matches `vf-eval`'s numbers. Every later refactor must re-pass this check. (Informal signal already: run #1's clean per-example rewards reproduce Phase 0's vf-eval values exactly.)
+Done when (**THE ANCHOR**): on an identical config (env, model, seed, n), `nanolab eval run` matches `vf-eval`'s numbers. Every later refactor must re-pass this check. ✅
 
 ### Phase 3 — Training station bring-up (1 week)
 
