@@ -109,7 +109,6 @@ def test_eval_list_empty(tmp_db):
 @pytest.mark.parametrize(
     "argv",
     [
-        ["train", "configs/example.toml"],
         ["deployments", "create", "1"],
         ["deployments", "list"],
     ],
@@ -118,6 +117,133 @@ def test_stubs_say_not_implemented(tmp_db, argv):
     result = runner.invoke(app, argv)
     assert result.exit_code == 2
     assert "not implemented" in result.output
+
+
+# ── training station (network-free, torch-free) ──────────────────────────────
+
+
+GOOD_TOML = """
+model = "Qwen/Qwen3-0.6B"
+max_steps = 50
+rollouts_per_example = 4
+
+[[env]]
+id = "primeintellect/gsm8k"
+"""
+
+
+def test_load_config_happy(tmp_path):
+    from nanolab import train
+
+    p = tmp_path / "ok.toml"
+    p.write_text(GOOD_TOML)
+    cfg = train.load_config(p)
+    assert cfg.model == "Qwen/Qwen3-0.6B"
+    assert cfg.env_id == "primeintellect/gsm8k"
+    assert cfg.max_steps == 50
+    assert cfg.rollouts_per_example == 4
+    assert cfg.lora.r == 16  # default
+
+
+@pytest.mark.parametrize(
+    "toml_text,fragment",
+    [
+        ("max_steps = 5\n[[env]]\nid = 'x'", "missing required key 'model'"),
+        ("model = 'm'\nmax_steps = 5", "exactly one [[env]]"),
+        ("model = 'm'\nmax_steps = 5\nrollouts_per_example = 1\n[[env]]\nid = 'x'", "rollouts_per_example"),
+        ("model = 'm'\nmax_steps = 0\n[[env]]\nid = 'x'", "max_steps"),
+    ],
+)
+def test_load_config_rejects_bad_configs(tmp_path, toml_text, fragment):
+    from nanolab import train
+
+    p = tmp_path / "bad.toml"
+    p.write_text(toml_text)
+    with pytest.raises(train.TrainError, match=fragment.replace("[", "\\[")):
+        train.load_config(p)
+
+
+def test_group_advantages():
+    from nanolab import train
+
+    # two groups of 4: first has signal, second is zero-variance
+    adv = train.group_advantages([1.0, 0.0, 0.0, 1.0, 0.5, 0.5, 0.5, 0.5], 4)
+    assert adv[4:] == [0.0, 0.0, 0.0, 0.0]  # no signal, no gradient
+    assert adv[0] > 0 and adv[1] < 0
+    assert abs(sum(adv[:4])) < 1e-9  # group-centred
+    with pytest.raises(train.TrainError):
+        train.group_advantages([1.0, 0.0, 1.0], 2)
+
+
+def test_trainability_window():
+    from nanolab import train
+
+    train.check_trainability(0.5)  # fine
+    with pytest.raises(train.TrainError, match="< 0.1"):
+        train.check_trainability(0.02)
+    with pytest.raises(train.TrainError, match="> 0.8"):
+        train.check_trainability(0.95)
+
+
+def test_batch_indices_deterministic():
+    from nanolab import train
+
+    a = train.batch_indices(seed=0, step=7, dataset_size=1000, batch_size=8)
+    b = train.batch_indices(seed=0, step=7, dataset_size=1000, batch_size=8)
+    c = train.batch_indices(seed=0, step=8, dataset_size=1000, batch_size=8)
+    assert a == b  # resume redraws the same batch
+    assert a != c  # different steps differ
+    assert len(set(a)) == 8
+
+
+def test_train_run_bookkeeping_and_resume(tmp_db, tmp_path):
+    from nanolab import train
+
+    p = tmp_path / "cfg.toml"
+    p.write_text(GOOD_TOML)
+    cfg = train.load_config(p)
+
+    conn = db.connect()
+    run_id = train.start_run(conn, cfg, env_row_id=None)
+    train.log_step(conn, run_id, 0, 0.30, 1.5)
+    train.log_step(conn, run_id, 1, 0.35, 1.2)
+    train.log_step(conn, run_id, 1, 0.36, 1.1)  # resume rewrites a step
+    train.register_adapter(conn, run_id, cfg.model, 1, "adapters/run1/step00001")
+
+    row = conn.execute("SELECT * FROM train_runs WHERE id = ?", (run_id,)).fetchone()
+    curve = __import__("json").loads(row["reward_curve_json"])
+    assert row["steps_completed"] == 2
+    assert [p["step"] for p in curve] == [0, 1]
+    assert curve[1]["reward"] == 0.36
+
+    # interrupted (status still 'running') → resumable
+    assert train.find_resumable_run(conn, cfg) == run_id
+    train.finish_run(conn, run_id, "done")
+    assert train.find_resumable_run(conn, cfg) is None
+    conn.close()
+
+
+def test_cli_train_missing_config(tmp_db):
+    result = runner.invoke(app, ["train", "nope.toml"])
+    assert result.exit_code == 1
+    assert "not found" in result.output
+
+
+def test_score_completions_with_real_rubric(tmp_db):
+    """End-to-end offline scoring through a real env rubric (skips if gsm8k
+    isn't installed, e.g. on CI)."""
+    pytest.importorskip("gsm8k")
+    from nanolab import train
+
+    env = train.load_single_turn_env("gsm8k")
+    ds = env.get_dataset()
+    row = ds[0]
+    rewards = train.score_completions(
+        env,
+        [row, row],
+        [f"thinking...\n\\boxed{{{row['answer']}}}", "\\boxed{999999}"],
+    )
+    assert rewards == [1.0, 0.0]
 
 
 # ── evaluation station (network-free) ────────────────────────────────────────

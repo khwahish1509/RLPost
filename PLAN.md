@@ -76,12 +76,12 @@ Done when (**THE ANCHOR**): on an identical config (env, model, seed, n), `nanol
 
 ### Phase 3 — Training station bring-up (1 week)
 
-- [ ] TOML config parser mirroring PI's schema: `model`, `max_steps`, `batch_size`, `rollouts_per_example`, `[[env]]`
-- [ ] `train.py`: env dataset → rollouts → rewards → GRPO step (TRL GRPOTrainer; Unsloth variant for Colab) → LoRA adapter
-- [ ] Pre-flight check hard-coded: baseline reward must be in the 10–80% window, else abort with a clear message (the trainability rule)
-- [ ] Reward curve logged per step into train_runs
-- [ ] Checkpoint every 10 steps; `--resume` flag restores model+optimizer+step (sessions die; assume it)
-- [ ] First run: Qwen3-0.6B, tiny env, 50 steps, on Colab T4
+- [x] TOML config parser mirroring the standard RL-training schema: `model`, `max_steps`, `batch_size`, `rollouts_per_example`, `[[env]]` — validated with clear errors
+- [x] `train.py`: env dataset → rollouts (model.generate) → rewards (env's own rubric, scored offline — proven against gsm8k's real verifier) → GRPO step (on-policy advantage-weighted NLL, group-normalized) → LoRA adapter. v0.1 scope: single-turn envs
+- [x] Pre-flight check hard-coded: baseline reward must be in the 10–80% window, else abort with a clear message (the trainability rule)
+- [x] Reward curve logged per step into train_runs (resume-safe step rewrite)
+- [x] Checkpoint every 10 steps; `--resume` restores adapter+optimizer+step, and batches derive from (seed, step) so a resumed run redraws identical batches
+- [ ] First run: Qwen3-0.6B on gsm8k, 50 steps, on Colab T4 — see docs/training-colab.md
 
 Done when: a 50-step run completes (surviving at least one restart via resume), the curve is non-flat and stored, and an adapter file lands in `adapters/`.
 

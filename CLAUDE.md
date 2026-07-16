@@ -42,3 +42,8 @@ The capstone (Phase 7) is **the Scribe**, a memory experiment: a stream environm
 - Python 3.11+ managed by uv; `uv sync` then `uv run nanolab ...`.
 - Tests: `uv run pytest` (smoke tests must stay network-free).
 - CI: GitHub Actions runs the smoke tests on every push.
+- **Gotcha:** `uv sync` removes Hub-installed environment packages (they're
+  not in the lockfile). `nanolab env list` flags them as `[missing from
+  venv!]`; re-run `nanolab env install <slug>` to heal.
+- Endpoint defaults live in the gitignored `.env` (NANOLAB_API_BASE_URL,
+  NANOLAB_API_KEY_VAR, NANOLAB_DEFAULT_MODEL); keys never go in git.

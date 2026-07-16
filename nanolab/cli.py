@@ -224,8 +224,15 @@ def train(
     config: str = typer.Argument(help="Path to a training TOML (see configs/)"),
     resume: bool = typer.Option(False, "--resume", help="Resume from the last checkpoint"),
 ) -> None:
-    """GRPO+LoRA training from a TOML config (synchronous loop)."""
-    _stub(f"train {config}{' --resume' if resume else ''}", 3)
+    """GRPO+LoRA training from a TOML config (synchronous loop, GPU box)."""
+    from . import train as train_mod
+
+    try:
+        run_id = train_mod.train(config, resume=resume)
+    except train_mod.TrainError as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(1) from exc
+    typer.secho(f"train run #{run_id} finished — adapters/ has the checkpoints", fg="green")
 
 
 # ── deployments ──────────────────────────────────────────────────────────────
