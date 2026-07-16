@@ -1,0 +1,12 @@
+2026-07-16 01:51:18 - verifiers.serve.server.env_server.ZMQEnvServer - INFO - Initializing ZMQEnvServer to serve alphabet-sort (env_args={}, extra_env_kwargs={'concurrency': 1}, num_workers=1)
+2026-07-16 01:51:18 - verifiers.serve.server.env_server.ZMQEnvServer - INFO - ZMQEnvServer started on tcp://127.0.0.1:55746
+2026-07-16 01:51:18 - verifiers.serve.server.env_router.EnvRouter - INFO - Started worker (id=0, name=alphabet-sort-0, address=ipc:///tmp/vf-7d64c426ad1d-alphabet-sort-0, pid=32424)
+2026-07-16 01:51:28 - verifiers.serve.server.env_router.EnvRouter - INFO - Active tasks: 0 (W0: ?)
+  Server | Lag: min=-0ms mean=2ms median=2ms p90=2ms p99=3ms max=3ms (n=99)
+  W0     | no stats yet
+2026-07-16 01:51:38 - verifiers.serve.server.env_router.EnvRouter - INFO - Active tasks: 1 (W0: 1)
+  Server | Lag: min=-0ms mean=2ms median=2ms p90=2ms p99=3ms max=3ms (n=197)
+  W0     | Lag: min=-0ms mean=2ms median=2ms p90=3ms p99=3ms max=3ms (n=98)
+2026-07-16 01:51:48 - verifiers.utils.process_utils - INFO - Death pipe closed — parent is gone, sending SIGTERM to self
+2026-07-16 01:51:48 - verifiers.serve.server.env_router.EnvRouter - INFO - Router shut down
+2026-07-16 01:51:48 - verifiers.serve.server.env_server.ZMQEnvServer - INFO - ZMQEnvServer shut down

@@ -42,9 +42,9 @@ Goal: run PI's actual environment stack locally, once, before writing any code.
 
 - [x] Install uv, then `uv tool install prime`
 - [x] `prime env install primeintellect/alphabet-sort`
-- [ ] Get an API key for a Player model (Gemini AI Studio or Groq) — **manual step, see results/phase0-notes.md**
-- [ ] Run `vf-eval alphabet-sort -m <model> -n 10` locally
-- [ ] Save the output table to `results/phase0-notes.md`
+- [x] Get an API key for a Player model (Gemini AI Studio or Groq)
+- [x] Run `vf-eval alphabet-sort -m <model> -n 10` locally — mean reward 0.759, zero errors
+- [x] Save the output table to `results/phase0-notes.md`
 - [x] Clone verifiers, prime-rl, prime-cli into a `reference/` folder; skim verifiers' AGENTS.md
 
 Done when: the first eval table exists and you've seen an environment run end to end.
