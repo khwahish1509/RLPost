@@ -19,7 +19,7 @@ The capstone (Phase 7) is **the Scribe**, a memory experiment: a stream environm
 - `nanolab/serve.py` — vLLM `--enable-lora` lifecycle; `base:adapter` model strings. (Phase 5)
 - `nanolab/ledger.py` — token accounting.
 - `nanolab/report.py` — static `leaderboard.html` from the db.
-- `nanolab/db.py` — SQLite schema: `environments`, `eval_runs`, `samples`, `train_runs`, `adapters`, `ledger`. Default path `results/nanolab.db`, override with `NANOLAB_DB`.
+- `nanolab/db.py` — SQLite schema: `environments`, `eval_runs`, `samples`, `train_runs`, `adapters`, `ledger`, `deployments`. Default path `results/nanolab.db`, override with `NANOLAB_DB`.
 
 ## Reference code (in `reference/`, gitignored — clone if missing)
 

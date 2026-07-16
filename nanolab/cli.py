@@ -26,14 +26,6 @@ app.add_typer(env_app, name="env")
 app.add_typer(eval_app, name="eval")
 app.add_typer(deploy_app, name="deployments")
 
-NOT_IMPLEMENTED_EXIT = 2
-
-
-def _stub(what: str, phase: int) -> None:
-    typer.secho(f"{what}: not implemented yet (Phase {phase} in PLAN.md).", fg="yellow")
-    raise typer.Exit(NOT_IMPLEMENTED_EXIT)
-
-
 @app.callback()
 def _main() -> None:
     """nanolab — one CLI, one SQLite file, one closed RL loop."""
@@ -239,15 +231,50 @@ def train(
 
 
 @deploy_app.command("create")
-def deployments_create(adapter_id: int = typer.Argument(help="Adapter id from the adapters table")) -> None:
-    """Serve an adapter through vLLM --enable-lora."""
-    _stub(f"deployments create {adapter_id}", 5)
+def deployments_create(
+    adapter_id: int = typer.Argument(help="Adapter id from the adapters table"),
+    port: int = typer.Option(8000, "--port", "-p"),
+) -> None:
+    """Serve an adapter through vLLM --enable-lora (CUDA box)."""
+    from . import serve
+
+    try:
+        dep = serve.create_deployment(adapter_id, port=port)
+    except serve.ServeError as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(1) from exc
+    typer.secho(f"deployment #{dep.id} running (pid {dep.pid})", fg="green")
+    typer.echo(f"  endpoint: {dep.endpoint}")
+    typer.echo(f"  eval it:  nanolab eval run <env> -m {dep.base_model}:{adapter_id}")
 
 
 @deploy_app.command("list")
 def deployments_list() -> None:
-    """List deployments."""
-    _stub("deployments list", 5)
+    """List deployments (liveness re-checked)."""
+    from . import serve
+
+    deps = serve.list_deployments()
+    if not deps:
+        typer.echo("no deployments — create one with: nanolab deployments create <adapter-id>")
+        return
+    for d in deps:
+        typer.echo(
+            f"#{d.id}  {d.base_model}:{d.adapter_id}  {d.endpoint}  "
+            f"pid={d.pid}  [{d.status}]"
+        )
+
+
+@deploy_app.command("stop")
+def deployments_stop(deployment_id: int = typer.Argument(help="Deployment id")) -> None:
+    """Stop a running deployment."""
+    from . import serve
+
+    try:
+        dep = serve.stop_deployment(deployment_id)
+    except serve.ServeError as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(1) from exc
+    typer.secho(f"deployment #{dep.id} stopped", fg="green")
 
 
 # ── report ───────────────────────────────────────────────────────────────────

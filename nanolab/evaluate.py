@@ -267,6 +267,21 @@ def run(
     resume: bool = False,
     force: bool = False,
 ) -> EvalSummary:
+    # base:adapter model strings resolve to a live local deployment
+    from . import serve
+
+    try:
+        resolved = serve.resolve_model(model)
+    except serve.ServeError as exc:
+        raise EvalError(str(exc)) from exc
+    if resolved is not None:
+        api_base_url, served_name, api_key_var = resolved
+        # the run is recorded under the base:adapter name; requests use the
+        # deployment's served model name
+        served_model = served_name
+    else:
+        served_model = model
+
     conn = db.connect()
     try:
         env_row = db.get_environment(conn, env_ref)
@@ -293,7 +308,7 @@ def run(
 
         config = _build_config(
             env_id=env_id,
-            model=model,
+            model=served_model,
             api_base_url=api_base_url,
             api_key_var=api_key_var,
             num_examples=n,

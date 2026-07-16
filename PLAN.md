@@ -95,12 +95,13 @@ Done when: the trained adapter beats its own pre-training baseline inside nanola
 
 ### Phase 5 — Inference station + loop closure (3–5 evenings)
 
-- [ ] `serve.py`: launch vLLM with `--enable-lora` and runtime adapter loading; register served adapters
-- [ ] `nanolab deployments create <adapter-id>` / `list`
-- [ ] `base:adapter` model strings resolved inside evaluate.py
-- [ ] Alternative path documented: merge LoRA → GGUF → llama.cpp for laptop serving
+- [x] `serve.py`: launch vLLM with `--enable-lora`; deployments registered in the db with pid-liveness tracking (`create` / `list` / `stop`)
+- [x] `nanolab deployments create <adapter-id>` / `list` / `stop`
+- [x] `base:adapter` model strings resolved inside evaluate.py (adapter looked up, base sanity-checked, routed to the live local endpoint) — anchor re-passed after the change
+- [x] Alternative path documented: merge LoRA → GGUF → llama.cpp for laptop serving (docs/serving.md)
+- [ ] Live vLLM run on a CUDA box with a real adapter (needs Phase 3/4's Colab output)
 
-Done when (**LOOP CLOSED**): `nanolab eval run <env> -m Qwen3-1.7B:<adapter>` — the trained adapter, measured through our own endpoint, inside our own eval station.
+Done when (**LOOP CLOSED**): `nanolab eval run <env> -m Qwen3-0.6B:<adapter>` — the trained adapter, measured through our own endpoint, inside our own eval station.
 
 ### Phase 6 — Ship v0.1.0 (2–4 evenings)
 

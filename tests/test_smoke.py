@@ -106,17 +106,86 @@ def test_eval_list_empty(tmp_db):
     assert "no eval runs" in result.output
 
 
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["deployments", "create", "1"],
-        ["deployments", "list"],
-    ],
-)
-def test_stubs_say_not_implemented(tmp_db, argv):
-    result = runner.invoke(app, argv)
-    assert result.exit_code == 2
-    assert "not implemented" in result.output
+# ── inference station (network/vllm-free) ───────────────────────────────────
+
+
+def test_parse_model_string():
+    from nanolab import serve
+
+    assert serve.parse_model_string("gemini-2.0-flash") is None
+    assert serve.parse_model_string("Qwen/Qwen3-0.6B:3") == ("Qwen/Qwen3-0.6B", "3")
+    with pytest.raises(serve.ServeError):
+        serve.parse_model_string(":3")
+
+
+def _seed_adapter(conn, base="Qwen/Qwen3-0.6B") -> int:
+    cur = conn.execute(
+        "INSERT INTO adapters (train_run_id, base_model, step, path, created_at)"
+        " VALUES (NULL, ?, 49, 'adapters/run1/step00049', ?)",
+        (base, db.utcnow()),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def test_resolve_model_paths(tmp_db):
+    import os
+
+    from nanolab import serve
+
+    # plain names pass through untouched
+    assert serve.resolve_model("gemini-2.0-flash") is None
+
+    conn = db.connect()
+    adapter_id = _seed_adapter(conn)
+
+    with pytest.raises(serve.ServeError, match="No adapter"):
+        serve.resolve_model("Qwen/Qwen3-0.6B:999")
+    with pytest.raises(serve.ServeError, match="was trained on"):
+        serve.resolve_model(f"other-model:{adapter_id}")
+    with pytest.raises(serve.ServeError, match="No live deployment"):
+        serve.resolve_model(f"Qwen/Qwen3-0.6B:{adapter_id}")
+
+    # a running deployment with a live pid resolves
+    conn.execute(
+        "INSERT INTO deployments (adapter_id, base_model, served_name, endpoint,"
+        " pid, status, created_at) VALUES (?, 'Qwen/Qwen3-0.6B', 'adapter-1',"
+        " 'http://localhost:8000/v1', ?, 'running', ?)",
+        (adapter_id, os.getpid(), db.utcnow()),
+    )
+    conn.commit()
+    conn.close()
+    endpoint, served, key_var = serve.resolve_model(f"Qwen/Qwen3-0.6B:{adapter_id}")
+    assert endpoint == "http://localhost:8000/v1"
+    assert served == "adapter-1"
+    assert os.environ.get(key_var)
+
+
+def test_list_deployments_marks_dead(tmp_db):
+    import os
+
+    from nanolab import serve
+
+    conn = db.connect()
+    adapter_id = _seed_adapter(conn)
+    for pid in (os.getpid(), 99999999):
+        conn.execute(
+            "INSERT INTO deployments (adapter_id, base_model, served_name,"
+            " endpoint, pid, status, created_at) VALUES (?, 'b', 's', 'e', ?,"
+            " 'running', ?)",
+            (adapter_id, pid, db.utcnow()),
+        )
+    conn.commit()
+    conn.close()
+    statuses = {d.pid: d.status for d in serve.list_deployments()}
+    assert statuses[os.getpid()] == "running"
+    assert statuses[99999999] == "dead"
+
+
+def test_deployments_cli_empty(tmp_db):
+    result = runner.invoke(app, ["deployments", "list"])
+    assert result.exit_code == 0
+    assert "no deployments" in result.output
 
 
 # ── training station (network-free, torch-free) ──────────────────────────────

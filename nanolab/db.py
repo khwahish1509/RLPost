@@ -83,6 +83,17 @@ CREATE TABLE IF NOT EXISTS ledger (
     completion_tokens INTEGER NOT NULL DEFAULT 0,
     created_at        TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS deployments (
+    id          INTEGER PRIMARY KEY,
+    adapter_id  INTEGER REFERENCES adapters(id),
+    base_model  TEXT NOT NULL,
+    served_name TEXT NOT NULL,      -- model name requests should use
+    endpoint    TEXT NOT NULL,      -- e.g. http://localhost:8000/v1
+    pid         INTEGER,
+    status      TEXT NOT NULL DEFAULT 'running',  -- running|stopped|dead
+    created_at  TEXT NOT NULL
+);
 """
 
 
