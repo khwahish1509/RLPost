@@ -226,6 +226,64 @@ def grpo_backward(
     return total_loss / max(n_micro, 1)
 
 
+# ── multi-turn rollouts → training pairs ────────────────────────────────────
+# A multi-turn rollout (e.g. a Scribe episode) trains as one pair per
+# assistant turn: (everything before the turn, the turn itself), all pairs
+# sharing the episode's advantage. The pairs feed the SAME grpo_backward as
+# single-turn batches — the loss never needs to know about conversations.
+
+
+def turn_pairs(prompt_msgs: list[dict], completion_msgs: list[dict]) -> list[tuple[list[dict], str]]:
+    """Explode a rollout into (context_messages, assistant_text) pairs."""
+    context = [dict(m) for m in prompt_msgs]
+    pairs: list[tuple[list[dict], str]] = []
+    for message in completion_msgs:
+        if message.get("role") == "assistant":
+            pairs.append(([dict(m) for m in context], str(message.get("content", ""))))
+        context.append(dict(message))
+    return pairs
+
+
+def collate_pairs(tokenizer, pairs, device, enable_thinking: bool = False):
+    """Tokenize pairs into (seqs, completion_ids) shaped for grpo_backward.
+
+    Each row is [left-pad | prompt | completion | right-pad→no] — completions
+    are left-padded too so the completion block sits at the row's right edge,
+    which is the alignment grpo_backward assumes.
+    """
+    import torch
+
+    pad_id = tokenizer.pad_token_id
+    rows = []
+    for context, assistant_text in pairs:
+        prefix = tokenizer.apply_chat_template(
+            context,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=enable_thinking,
+        )
+        prompt_ids = tokenizer(prefix, add_special_tokens=False)["input_ids"]
+        completion_ids = tokenizer(
+            assistant_text + (tokenizer.eos_token or ""), add_special_tokens=False
+        )["input_ids"]
+        rows.append((prompt_ids, completion_ids))
+
+    max_comp = max(len(c) for _, c in rows)
+    max_total = max(len(p) + max_comp for p, _ in rows)
+    seqs, comps = [], []
+    for prompt_ids, completion_ids in rows:
+        # completion block occupies the last max_comp columns: text first,
+        # padding after, so positions stay contiguous with the prompt
+        comp_padded = completion_ids + [pad_id] * (max_comp - len(completion_ids))
+        full = prompt_ids + comp_padded
+        seqs.append([pad_id] * (max_total - len(full)) + full)
+        comps.append(comp_padded)
+    return (
+        torch.tensor(seqs, dtype=torch.long, device=device),
+        torch.tensor(comps, dtype=torch.long, device=device),
+    )
+
+
 # ── environment scoring (offline; single-turn only) ─────────────────────────
 
 
