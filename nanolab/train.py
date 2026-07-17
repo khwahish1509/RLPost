@@ -381,10 +381,10 @@ def train(config_path: str | Path, resume: bool = False) -> int:
                 target_modules="all-linear",
             ),
         )
-    # activation checkpointing: recompute instead of store — the difference
-    # between fitting on a T4 and OOM (costs ~30% step time)
+    # needed so gradients reach LoRA params once checkpointing is on;
+    # checkpointing itself is toggled per phase: ON for the loss pass only,
+    # OFF for generation (it forces use_cache=False and breaks sampling)
     model.enable_input_require_grads()
-    model.gradient_checkpointing_enable()
     model.train()
     optimizer = torch.optim.AdamW(
         (p for p in model.parameters() if p.requires_grad), lr=config.learning_rate
@@ -395,31 +395,39 @@ def train(config_path: str | Path, resume: bool = False) -> int:
         )
 
     def generate_batch(rows: list[dict]) -> tuple[list[str], "torch.Tensor", "torch.Tensor"]:
-        prompts = [
-            tokenizer.apply_chat_template(
-                row["prompt"],
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=config.enable_thinking,
-            )
-            for row in rows
-        ]
-        enc = tokenizer(prompts, return_tensors="pt", padding=True).to(device)
-        with torch.no_grad():
-            seqs = model.generate(
-                **enc,
-                do_sample=True,
-                temperature=config.temperature,
-                max_new_tokens=config.max_new_tokens,
-                num_return_sequences=config.rollouts_per_example,
-                pad_token_id=tokenizer.pad_token_id,
-            )
-        prompt_len = enc["input_ids"].shape[1]
-        completion_ids = seqs[:, prompt_len:]
-        texts = tokenizer.batch_decode(completion_ids, skip_special_tokens=True)
-        return texts, seqs, completion_ids
+        model.gradient_checkpointing_disable()
+        base.config.use_cache = True
+        model.eval()
+        try:
+            prompts = [
+                tokenizer.apply_chat_template(
+                    row["prompt"],
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=config.enable_thinking,
+                )
+                for row in rows
+            ]
+            enc = tokenizer(prompts, return_tensors="pt", padding=True).to(device)
+            with torch.no_grad():
+                seqs = model.generate(
+                    **enc,
+                    do_sample=True,
+                    temperature=config.temperature,
+                    max_new_tokens=config.max_new_tokens,
+                    num_return_sequences=config.rollouts_per_example,
+                    pad_token_id=tokenizer.pad_token_id,
+                )
+            prompt_len = enc["input_ids"].shape[1]
+            completion_ids = seqs[:, prompt_len:]
+            texts = tokenizer.batch_decode(completion_ids, skip_special_tokens=True)
+            return texts, seqs, completion_ids
+        finally:
+            model.train()
 
     def grpo_step(seqs, completion_ids, advantages) -> float:
+        # recompute-not-store during backward: the T4 memory saver
+        model.gradient_checkpointing_enable()
         optimizer.zero_grad(set_to_none=True)
         loss = grpo_backward(
             model, seqs, completion_ids, advantages,
@@ -451,6 +459,7 @@ def train(config_path: str | Path, resume: bool = False) -> int:
             baseline = score_completions(env, expanded, texts)
             mean_baseline = sum(baseline) / len(baseline)
             print(f"pre-flight baseline reward: {mean_baseline:.3f}")
+            print(f"pre-flight sample completion: {texts[0][:300]!r}")
             check_trainability(mean_baseline)
 
         for step in range(start_step, config.max_steps):
