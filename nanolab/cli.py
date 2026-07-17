@@ -20,10 +20,12 @@ app = typer.Typer(
 
 env_app = typer.Typer(help="Install and list verifiers environments.", no_args_is_help=True)
 eval_app = typer.Typer(help="Run and inspect evaluations.", no_args_is_help=True)
+training_app = typer.Typer(help="Inspect training runs and reward curves.", no_args_is_help=True)
 deploy_app = typer.Typer(help="Serve trained adapters.", no_args_is_help=True)
 
 app.add_typer(env_app, name="env")
 app.add_typer(eval_app, name="eval")
+app.add_typer(training_app, name="training")
 app.add_typer(deploy_app, name="deployments")
 
 @app.callback()
@@ -222,6 +224,44 @@ def eval_show(run_id: int = typer.Argument(help="Eval run id")) -> None:
         typer.echo(f"  results dir: {detail['meta']['results_path']}")
 
 
+@eval_app.command("compare")
+def eval_compare(
+    run_a: int = typer.Argument(help="Baseline eval run id (e.g. the base model)"),
+    run_b: int = typer.Argument(help="Challenger eval run id (e.g. the adapter)"),
+) -> None:
+    """Side-by-side comparison of two eval runs (Phase 4: adapter vs base)."""
+    from . import evaluate
+
+    try:
+        a = evaluate.show(run_a)
+        b = evaluate.show(run_b)
+    except evaluate.EvalError as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(1) from exc
+
+    if a["env"] != b["env"]:
+        typer.secho(
+            f"warning: different environments ({a['env']} vs {b['env']}) — "
+            "comparison is not apples-to-apples",
+            fg="yellow",
+        )
+    typer.echo(f"env: {a['env']}")
+    typer.echo(f"  A  #{a['run_id']}  {a['model']}  n={a['num_examples']} r={a['rollouts_per_example']}")
+    typer.echo(f"  B  #{b['run_id']}  {b['model']}  n={b['num_examples']} r={b['rollouts_per_example']}")
+    ra, rb = a["reward"], b["reward"]
+    delta = rb["avg"] - ra["avg"]
+    typer.echo(f"\n  reward A: {ra['avg']:.3f} ± {ra['std']:.3f}   (n={ra['n']})")
+    typer.echo(f"  reward B: {rb['avg']:.3f} ± {rb['std']:.3f}   (n={rb['n']})")
+    color = "green" if delta > 0 else ("red" if delta < 0 else "yellow")
+    typer.secho(f"  Δ (B − A): {delta:+.3f}", fg=color, bold=True)
+    shared = sorted(set(a["metrics"]) & set(b["metrics"]))
+    if shared:
+        typer.echo("\n  per-metric Δ:")
+        for key in shared:
+            d = b["metrics"][key]["avg"] - a["metrics"][key]["avg"]
+            typer.echo(f"    {key}: {a['metrics'][key]['avg']:.3f} → {b['metrics'][key]['avg']:.3f}  ({d:+.3f})")
+
+
 # ── train ────────────────────────────────────────────────────────────────────
 
 
@@ -239,6 +279,90 @@ def train(
         typer.secho(str(exc), fg="red", err=True)
         raise typer.Exit(1) from exc
     typer.secho(f"train run #{run_id} finished — adapters/ has the checkpoints", fg="green")
+
+
+# ── training runs ────────────────────────────────────────────────────────────
+
+
+@training_app.command("list")
+def training_list() -> None:
+    """List training runs (start one with: nanolab train <config.toml>)."""
+    conn = db.connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT t.*, v.slug AS env_slug FROM train_runs t
+            LEFT JOIN environments v ON v.id = t.env_id
+            ORDER BY t.id DESC
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        typer.echo("no training runs yet — start one with: nanolab train configs/<config>.toml")
+        return
+    import json as json_mod
+
+    for r in rows:
+        curve = json_mod.loads(r["reward_curve_json"] or "[]")
+        last = f"{curve[-1]['reward']:.3f}" if curve else "—"
+        typer.echo(
+            f"#{r['id']}  {r['model']}  on {r['env_slug'] or '?'}  "
+            f"[{r['status']}]  steps={r['steps_completed']}  last-reward={last}"
+        )
+
+
+@training_app.command("show")
+def training_show(run_id: int = typer.Argument(help="Training run id")) -> None:
+    """Reward curve + checkpoints for one training run."""
+    import json as json_mod
+
+    from .train import sparkline
+
+    conn = db.connect()
+    try:
+        r = conn.execute(
+            """
+            SELECT t.*, v.slug AS env_slug FROM train_runs t
+            LEFT JOIN environments v ON v.id = t.env_id WHERE t.id = ?
+            """,
+            (run_id,),
+        ).fetchone()
+        if r is None:
+            typer.secho(f"No training run with id {run_id}", fg="red", err=True)
+            raise typer.Exit(1)
+        adapters = conn.execute(
+            "SELECT * FROM adapters WHERE train_run_id = ? ORDER BY step", (run_id,)
+        ).fetchall()
+    finally:
+        conn.close()
+
+    curve = json_mod.loads(r["reward_curve_json"] or "[]")
+    rewards = [p["reward"] for p in curve]
+    typer.secho(f"train run #{r['id']}  [{r['status']}]", fg="green")
+    typer.echo(f"  model:  {r['model']}")
+    typer.echo(f"  env:    {r['env_slug'] or '?'}")
+    typer.echo(f"  steps:  {r['steps_completed']}")
+    typer.echo(f"  window: {r['started_at']} → {r['finished_at'] or '…'}")
+    if rewards:
+        typer.echo(f"  curve:  {sparkline(rewards)}")
+        typer.echo(
+            f"          first {rewards[0]:.3f} → last {rewards[-1]:.3f}"
+            f"  (min {min(rewards):.3f}, max {max(rewards):.3f})"
+        )
+        delta = rewards[-1] - rewards[0]
+        color = "green" if delta > 0 else "yellow"
+        typer.secho(f"          Δ over run: {delta:+.3f}", fg=color)
+    else:
+        typer.echo("  curve:  (no steps logged)")
+    if adapters:
+        typer.echo("  checkpoints:")
+        for a in adapters:
+            typer.echo(f"    adapter #{a['id']}  step {a['step']}  {a['path']}")
+        last = adapters[-1]
+        typer.echo(
+            f"  evaluate it: nanolab eval run <env> -m {last['base_model']}:{last['id']}"
+        )
 
 
 # ── deployments ──────────────────────────────────────────────────────────────

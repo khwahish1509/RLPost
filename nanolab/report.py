@@ -50,6 +50,37 @@ _ROW = (
     "<td class=num>#{run_id}</td><td>{date}</td></tr>"
 )
 
+_TRAIN_SECTION = """<h2>training runs</h2>
+<table>
+<tr><th>run</th><th>model</th><th>env</th><th>status</th><th>steps</th><th>reward curve</th><th>first → last</th></tr>
+{rows}
+</table>
+"""
+
+_TRAIN_ROW = (
+    "<tr><td class=num>#{run_id}</td><td>{model}</td><td>{env}</td>"
+    "<td>{status}</td><td class=num>{steps}</td><td>{svg}</td>"
+    "<td class=num>{first_last}</td></tr>"
+)
+
+
+def _curve_svg(rewards: list[float], width: int = 220, height: int = 40) -> str:
+    """Inline SVG polyline of a reward curve; self-contained, no JS."""
+    if len(rewards) < 2:
+        return "—"
+    lo, hi = min(rewards), max(rewards)
+    span = (hi - lo) or 1.0
+    step_x = width / (len(rewards) - 1)
+    points = " ".join(
+        f"{i * step_x:.1f},{height - 3 - (r - lo) / span * (height - 6):.1f}"
+        for i, r in enumerate(rewards)
+    )
+    return (
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+        f'xmlns="http://www.w3.org/2000/svg"><polyline points="{points}" '
+        f'fill="none" stroke="#4a9eff" stroke-width="2"/></svg>'
+    )
+
 
 def render(output_path: str | Path | None = None) -> Path:
     conn = db.connect()
@@ -73,6 +104,13 @@ def render(output_path: str | Path | None = None) -> Path:
             ).fetchone()
             for row in runs
         }
+        train_runs = conn.execute(
+            """
+            SELECT t.*, v.slug AS env_slug FROM train_runs t
+            LEFT JOIN environments v ON v.id = t.env_id
+            ORDER BY t.id DESC
+            """
+        ).fetchall()
     finally:
         conn.close()
 
@@ -100,6 +138,27 @@ def render(output_path: str | Path | None = None) -> Path:
                 )
             )
         sections.append(_SECTION.format(env=html.escape(env_slug), rows="\n".join(rows)))
+
+    if train_runs:
+        trows = []
+        for t in train_runs:
+            curve = json.loads(t["reward_curve_json"] or "[]")
+            rewards = [p["reward"] for p in curve]
+            first_last = (
+                f"{rewards[0]:.3f} → {rewards[-1]:.3f}" if rewards else "—"
+            )
+            trows.append(
+                _TRAIN_ROW.format(
+                    run_id=t["id"],
+                    model=html.escape(t["model"]),
+                    env=html.escape(t["env_slug"] or "?"),
+                    status=t["status"],
+                    steps=t["steps_completed"],
+                    svg=_curve_svg(rewards),
+                    first_last=first_last,
+                )
+            )
+        sections.append(_TRAIN_SECTION.format(rows="\n".join(trows)))
 
     page = _PAGE.format(
         sections="\n".join(sections) if sections else "<p>No completed eval runs yet.</p>",

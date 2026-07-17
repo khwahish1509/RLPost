@@ -338,6 +338,85 @@ def test_cli_train_missing_config(tmp_db):
     assert "not found" in result.output
 
 
+def _seed_train_run(tmp_path, rewards):
+    from nanolab import train
+
+    p = tmp_path / "cfg.toml"
+    p.write_text(GOOD_TOML)
+    cfg = train.load_config(p)
+    conn = db.connect()
+    env_row = db.register_environment(conn, "primeintellect/gsm8k", "gsm8k", "0.1.3")
+    run_id = train.start_run(conn, cfg, env_row)
+    for step, r in enumerate(rewards):
+        train.log_step(conn, run_id, step, r, 1.0 - r)
+    train.register_adapter(conn, run_id, cfg.model, len(rewards) - 1, "adapters/run1/x")
+    train.finish_run(conn, run_id, "done")
+    conn.close()
+    return run_id
+
+
+def test_sparkline():
+    from nanolab.train import sparkline
+
+    line = sparkline([0.0, 0.5, 1.0])
+    assert line[0] == "▁" and line[-1] == "█"
+    assert sparkline([]) == "(no data)"
+    assert len(sparkline([0.3] * 10)) == 10  # flat curve doesn't crash
+
+
+def test_training_list_and_show(tmp_db, tmp_path):
+    run_id = _seed_train_run(tmp_path, [0.30, 0.42, 0.55])
+
+    result = runner.invoke(app, ["training", "list"])
+    assert result.exit_code == 0
+    assert "last-reward=0.550" in result.output
+
+    result = runner.invoke(app, ["training", "show", str(run_id)])
+    assert result.exit_code == 0
+    assert "first 0.300 → last 0.550" in result.output
+    assert "+0.250" in result.output  # the Δ line
+    assert "adapter #1" in result.output
+    assert runner.invoke(app, ["training", "show", "99"]).exit_code == 1
+
+
+def test_report_includes_training_curve(tmp_db, tmp_path):
+    from nanolab import report
+
+    _seed_train_run(tmp_path, [0.30, 0.42, 0.55])
+    out = report.render(tmp_path / "board.html")
+    text = out.read_text()
+    assert "training runs" in text
+    assert "<polyline" in text  # the SVG curve
+    assert "0.300 → 0.550" in text
+
+
+def test_eval_compare(tmp_db):
+    from nanolab import evaluate
+
+    conn, run_a = _seed_run()
+    evaluate.persist_outputs(conn, run_a, _fake_outputs())
+    cur = conn.execute(
+        "INSERT INTO eval_runs (env_id, model, num_examples, rollouts_per_example,"
+        " params_json, status, mean_reward, metrics_json, started_at) "
+        "VALUES (1, 'better-model', 2, 2, '{}', 'done', 0.875, '{}', ?)",
+        (db.utcnow(),),
+    )
+    run_b = cur.lastrowid
+    better = _fake_outputs()
+    for rollout in better["outputs"]:
+        rollout["reward"] = min(1.0, rollout["reward"] + 0.25)
+        rollout["metrics"] = {"accuracy": rollout["reward"]}
+    evaluate.persist_outputs(conn, run_b, better)
+    conn.commit()
+    conn.close()
+
+    result = runner.invoke(app, ["eval", "compare", str(run_a), str(run_b)])
+    assert result.exit_code == 0
+    # boost is capped at 1.0 for the two already-perfect rollouts → +0.125
+    assert "Δ (B − A): +0.125" in result.output
+    assert "accuracy" in result.output
+
+
 def test_score_completions_with_real_rubric(tmp_db):
     """End-to-end offline scoring through a real env rubric (skips if gsm8k
     isn't installed, e.g. on CI)."""

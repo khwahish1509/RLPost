@@ -149,6 +149,20 @@ def group_advantages(rewards: list[float], group_size: int) -> list[float]:
     return adv.reshape(-1).tolist()
 
 
+SPARK_CHARS = "▁▂▃▄▅▆▇█"
+
+
+def sparkline(values: list[float]) -> str:
+    """Terminal-friendly curve: one block char per step."""
+    if not values:
+        return "(no data)"
+    lo, hi = min(values), max(values)
+    span = (hi - lo) or 1.0
+    return "".join(
+        SPARK_CHARS[round((v - lo) / span * (len(SPARK_CHARS) - 1))] for v in values
+    )
+
+
 def check_trainability(mean_reward: float) -> None:
     """PI's product rule: outside the 10–80% window there is nothing to train."""
     lo, hi = TRAINABILITY_WINDOW
