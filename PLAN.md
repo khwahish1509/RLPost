@@ -81,7 +81,7 @@ Done when (**THE ANCHOR**): on an identical config (env, model, seed, n), `nanol
 - [x] Pre-flight check hard-coded: baseline reward must be in the 10–80% window, else abort with a clear message (the trainability rule)
 - [x] Reward curve logged per step into train_runs (resume-safe step rewrite)
 - [x] Checkpoint every 10 steps; `--resume` restores adapter+optimizer+step, and batches derive from (seed, step) so a resumed run redraws identical batches
-- [ ] First run: Qwen3-0.6B on gsm8k, 50 steps, on Colab T4 — see docs/training-colab.md
+- [x] First run: Qwen3-0.6B on gsm8k, 50 steps, Colab T4 — **completed 2026-07-17**: zero crashes, 5 checkpoints, curve stored (`nanolab training show 1`). Post-mortem: lora_B grew 1.19→2.67 (learning real, no gradient bug) but lr 1e-5 capped total movement at ~5e-4 — held-out exam delta exactly +0.000. Run 2 config: lr 1e-4, 100 steps
 
 Done when: a 50-step run completes (surviving at least one restart via resume), the curve is non-flat and stored, and an adapter file lands in `adapters/`.
 
