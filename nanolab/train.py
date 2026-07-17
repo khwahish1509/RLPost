@@ -27,6 +27,7 @@ run draws the same batches it would have.
 from __future__ import annotations
 
 import json
+import os
 import random
 import tomllib
 from dataclasses import dataclass, field
@@ -309,6 +310,9 @@ def train(config_path: str | Path, resume: bool = False) -> int:
     """Run (or resume) a training run; returns the train_run id."""
     config = load_config(config_path)
 
+    # reduce CUDA fragmentation (must be set before torch touches the GPU)
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
     try:
         import torch  # noqa: F401
         from peft import LoraConfig as PeftLoraConfig
@@ -377,6 +381,10 @@ def train(config_path: str | Path, resume: bool = False) -> int:
                 target_modules="all-linear",
             ),
         )
+    # activation checkpointing: recompute instead of store — the difference
+    # between fitting on a T4 and OOM (costs ~30% step time)
+    model.enable_input_require_grads()
+    model.gradient_checkpointing_enable()
     model.train()
     optimizer = torch.optim.AdamW(
         (p for p in model.parameters() if p.requires_grad), lr=config.learning_rate
@@ -451,6 +459,8 @@ def train(config_path: str | Path, resume: bool = False) -> int:
             expanded = [r for r in rows for _ in range(config.rollouts_per_example)]
             rewards = score_completions(env, expanded, texts)
             advantages = group_advantages(rewards, config.rollouts_per_example)
+            if device == "cuda":
+                torch.cuda.empty_cache()  # release generation buffers before the loss pass
             loss = grpo_step(seqs, completion_ids, advantages)
             mean_reward = sum(rewards) / len(rewards)
             log_step(conn, run_id, step, mean_reward, loss)

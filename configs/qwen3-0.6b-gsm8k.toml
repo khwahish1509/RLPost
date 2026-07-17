@@ -11,7 +11,7 @@ checkpoint_every = 10
 seed = 0
 max_new_tokens = 256
 temperature = 1.0
-micro_batch_size = 8
+micro_batch_size = 2  # T4-safe: the loss pass materializes full-vocab logits per sequence
 enable_thinking = false  # Qwen3 thinking blocks eat the token budget; answer directly
 
 [lora]
