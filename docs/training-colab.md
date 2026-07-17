@@ -14,7 +14,7 @@ where the run stopped.
 
 # 2. deps: project + GPU stack
 !pip install -q uv && uv sync
-!uv pip install -q torch transformers peft
+!uv add torch transformers peft
 
 # 3. the environment being trained on
 !uv tool install prime && uv run nanolab env install primeintellect/gsm8k
