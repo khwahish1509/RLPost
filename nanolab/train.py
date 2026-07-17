@@ -66,6 +66,9 @@ class TrainConfig:
     temperature: float = 1.0
     micro_batch_size: int = 8
     max_grad_norm: float = 1.0
+    # Qwen3-style models burn the whole token budget inside <think> blocks;
+    # small-model RL wants direct answers, so thinking is off by default.
+    enable_thinking: bool = False
     lora: LoraConfig = field(default_factory=LoraConfig)
     raw_toml: str = ""
 
@@ -110,6 +113,7 @@ def load_config(path: str | Path) -> TrainConfig:
         temperature=float(data.get("temperature", 1.0)),
         micro_batch_size=int(data.get("micro_batch_size", 8)),
         max_grad_norm=float(data.get("max_grad_norm", 1.0)),
+        enable_thinking=bool(data.get("enable_thinking", False)),
         lora=LoraConfig(
             r=int(lora_raw.get("r", 16)),
             alpha=int(lora_raw.get("alpha", 32)),
@@ -358,7 +362,7 @@ def train(config_path: str | Path, resume: bool = False) -> int:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
     base = AutoModelForCausalLM.from_pretrained(
-        config.model, torch_dtype=dtype, device_map=device
+        config.model, dtype=dtype, device_map=device
     )
     if checkpoint_dir is not None:
         model = PeftModel.from_pretrained(base, checkpoint_dir, is_trainable=True)
@@ -385,7 +389,10 @@ def train(config_path: str | Path, resume: bool = False) -> int:
     def generate_batch(rows: list[dict]) -> tuple[list[str], "torch.Tensor", "torch.Tensor"]:
         prompts = [
             tokenizer.apply_chat_template(
-                row["prompt"], tokenize=False, add_generation_prompt=True
+                row["prompt"],
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=config.enable_thinking,
             )
             for row in rows
         ]

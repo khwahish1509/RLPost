@@ -12,6 +12,7 @@ seed = 0
 max_new_tokens = 256
 temperature = 1.0
 micro_batch_size = 8
+enable_thinking = false  # Qwen3 thinking blocks eat the token budget; answer directly
 
 [lora]
 r = 16

@@ -251,6 +251,7 @@ def test_load_config_happy(tmp_path):
     assert cfg.max_steps == 50
     assert cfg.rollouts_per_example == 4
     assert cfg.lora.r == 16  # default
+    assert cfg.enable_thinking is False  # Qwen3 thinking off by default
 
 
 @pytest.mark.parametrize(
