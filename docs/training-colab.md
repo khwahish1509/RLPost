@@ -8,8 +8,12 @@ where the run stopped.
 ## Cells
 
 ```bash
-# 1. get the code (private repo — use a GitHub token, or upload a zip)
-!git clone https://<TOKEN>@github.com/khwahish1509/RLPost.git nanolab
+# 0. easiest path: use the ready-made notebook instead of these cells —
+#    notebooks/train_gsm8k_colab.ipynb (open it via
+#    colab.research.google.com/github/khwahish1509/RLPost/blob/main/notebooks/train_gsm8k_colab.ipynb)
+
+# 1. get the code
+!git clone https://github.com/khwahish1509/RLPost.git nanolab
 %cd nanolab
 
 # 2. deps: project + GPU stack
