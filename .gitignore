@@ -22,3 +22,6 @@ reference/
 
 # secrets
 .env
+
+# stray clone if the notebook's cell 1 is run locally
+notebooks/nanolab/
