@@ -114,11 +114,11 @@ Done when: a stranger reproduces the Phase-2 anchor check from the README in und
 
 ### Phase 7 — THE SCRIBE (2–3 weeks; the reason all of the above exists)
 
-- [ ] Stream environment (a verifiers MultiTurnEnv): one episode = N=8 related tasks in sequence; a markdown notebook persists across them, hard-capped at 1,500 tokens in code; `env_response` runs a frozen Player model on the next task and returns the outcome; the model under test is the Scribe, whose only output is notebook edits
-- [ ] Lift metric in the rubric: average score on tasks 2–8 with notes minus without, computed on held-out task sets
-- [ ] Anti-cheat trio: token cap (kills log-dumping) · held-out tasks (kills answer-memorizing) · frozen Player (kills "the model just got better")
-- [ ] S1 check — before any training: a prompted Scribe (a strong API model) must produce clearly positive Lift on held-out streams. No lift = stop and investigate the environment, not the trainer
-- [ ] Cache all Player calls (streams re-run constantly during Scribe development)
+- [x] Stream environment (`environments/scribe_stream/`, a verifiers MultiTurnEnv): one episode = 8 dependent tasks; each later task needs a "figure" revealed only by an earlier task; `env_response` runs the frozen Player statelessly with only the notebook; the Scribe's sole output is the notebook (full rewrite per turn)
+- [x] Lift metric in the rubric: Player's mean score on tasks 2–8 with notes minus without, on held-out streams (disjoint seed ranges)
+- [x] Anti-cheat trio: ~1,500-token cap enforced by truncation in code · held-out eval seeds · frozen Player at temperature 0
+- [x] **S1 PASSED (2026-07-17)**: prompted Grok Scribe on 10 held-out streams → **Lift 0.857** (Player: 0.0% without notes → 85.7% with), zero errors. There is signal to train on.
+- [x] Cache all Player calls (disk cache in .cache/player, T=0 so the cache is honest; `player_model="fake"` for free offline mechanics — 6 tests cover the extremes)
 - [ ] GRPO-train a small Scribe (Qwen3 0.6B–1.7B) on Lift reward using nanolab's own trainer
 - [ ] S2 check: trained small Scribe ≥ prompted same-size Scribe on Lift
 

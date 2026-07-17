@@ -59,6 +59,7 @@ def _params_json(
     shuffle_seed: int | None,
     temperature: float | None,
     max_tokens: int | None,
+    env_args: dict | None = None,
 ) -> str:
     """Canonical config fingerprint used by the run-level cache."""
     return json.dumps(
@@ -69,6 +70,7 @@ def _params_json(
             "shuffle_seed": shuffle_seed,
             "temperature": temperature,
             "max_tokens": max_tokens,
+            "env_args": env_args or {},
         },
         sort_keys=True,
     )
@@ -88,6 +90,7 @@ def _build_config(
     max_concurrent: int,
     max_retries: int,
     resume: bool,
+    env_args: dict | None = None,
 ):
     """Mirror vf-eval's build_eval_config for the direct-endpoint path."""
     from verifiers.scripts.eval import (
@@ -125,7 +128,7 @@ def _build_config(
         )
     return EvalConfig(
         env_id=env_id,
-        env_args={},
+        env_args=env_args or {},
         env_dir_path=DEFAULT_ENV_DIR_PATH,
         output_dir="results",
         model=model,
@@ -266,6 +269,7 @@ def run(
     max_retries: int = DEFAULT_MAX_RETRIES,
     resume: bool = False,
     force: bool = False,
+    env_args: dict | None = None,
 ) -> EvalSummary:
     # base:adapter model strings resolve to a live local deployment
     from . import serve
@@ -299,6 +303,7 @@ def run(
             shuffle_seed=shuffle_seed,
             temperature=temperature,
             max_tokens=max_tokens,
+            env_args=env_args,
         )
 
         if not force and not resume:
@@ -319,6 +324,7 @@ def run(
             max_concurrent=max_concurrent,
             max_retries=max_retries,
             resume=resume,
+            env_args=env_args,
         )
 
         cur = conn.execute(

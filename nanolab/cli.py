@@ -101,9 +101,22 @@ def eval_run(
     max_tokens: int = typer.Option(None, "--max-tokens", "-t"),
     resume: bool = typer.Option(False, "--resume", help="Continue the newest incomplete run of this config"),
     force: bool = typer.Option(False, "--force", help="Re-run even if an identical config already completed"),
+    env_args: str = typer.Option(
+        None, "--env-args", "-a", help='Environment arguments as JSON, e.g. \'{"player_model": "fake"}\''
+    ),
 ) -> None:
     """Evaluate a model on an environment (rollouts + rubric scoring)."""
+    import json as json_mod
+
     from . import evaluate
+
+    parsed_env_args = None
+    if env_args:
+        try:
+            parsed_env_args = json_mod.loads(env_args)
+        except json_mod.JSONDecodeError as exc:
+            typer.secho(f"--env-args is not valid JSON: {exc}", fg="red", err=True)
+            raise typer.Exit(1) from exc
 
     model = model or os.environ.get("NANOLAB_DEFAULT_MODEL")
     api_base_url = api_base_url or os.environ.get("NANOLAB_API_BASE_URL")
@@ -133,6 +146,7 @@ def eval_run(
             max_retries=max_retries if max_retries is not None else evaluate.DEFAULT_MAX_RETRIES,
             resume=resume,
             force=force,
+            env_args=parsed_env_args,
         )
     except evaluate.EvalError as exc:
         typer.secho(str(exc), fg="red", err=True)
