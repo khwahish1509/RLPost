@@ -511,7 +511,9 @@ def train(config_path: str | Path, resume: bool = False) -> int:
     if resume:
         run_id = find_resumable_run(conn, config)
         if run_id is None:
-            raise TrainError("--resume: no interrupted run found for this config")
+            print("--resume: nothing to resume for this config — starting fresh")
+            resume = False
+    if resume:
         row = conn.execute(
             "SELECT steps_completed FROM train_runs WHERE id = ?", (run_id,)
         ).fetchone()
