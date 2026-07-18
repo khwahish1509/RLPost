@@ -55,7 +55,7 @@ window.copyCmd = (cmd) => {
 
 const cli = (cmd) =>
   `<button class="cli" onclick="copyCmd(this.dataset.cmd)" data-cmd="${esc(cmd)}"
-    title="click to copy"><b>$</b> ${esc(cmd)}</button>`;
+    title="This copies the command — paste it in the Terminal app, or just ask Claude to run it. The UI itself is view-only."><b>$</b> ${esc(cmd)}</button>`;
 
 const icons = {
   flask: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M10 2v7L4.5 19a2 2 0 0 0 1.8 3h11.4a2 2 0 0 0 1.8-3L14 9V2M8.5 2h7"/></svg>',

@@ -419,6 +419,27 @@ def deployments_stop(deployment_id: int = typer.Argument(help="Deployment id")) 
 
 
 @app.command()
+def instrument(
+    base_run: int = typer.Argument(help="Stream eval run id with the plain Player"),
+    adapter_run: int = typer.Argument(
+        None, help="Same stream eval with the Player served as base:adapter"
+    ),
+) -> None:
+    """The four-column instrument: base · +context · +weights · +both.
+
+    Separates missing-knowledge (text closes it) from missing-skill (only
+    weight training closes it), from stored stream-environment eval runs."""
+    from . import instrument as instrument_mod
+
+    try:
+        cols = instrument_mod.four_columns(base_run, adapter_run)
+    except instrument_mod.InstrumentError as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(instrument_mod.render_text(cols))
+
+
+@app.command()
 def ui(
     port: int = typer.Option(3456, "--port", "-p"),
     no_open: bool = typer.Option(False, "--no-open", help="Don't open the browser"),

@@ -1,8 +1,6 @@
 # nanolab
 
-**Train language models with reinforcement learning — on your own machine, end to end.**
-
-nanolab is a self-hosted RL lab that closes the whole loop, small enough to understand in one sitting:
+**A self-hosted reinforcement-learning lab: measure a model, train it, serve it, measure again — on hardware you already have.**
 
 ```
 Environments ──▶ Evaluations ──▶ Training (GRPO + LoRA) ──▶ Inference ──▶ re-eval
@@ -10,57 +8,101 @@ Environments ──▶ Evaluations ──▶ Training (GRPO + LoRA) ──▶ In
      └────────────────────── one CLI · one SQLite file ◀────────────────────┘
 ```
 
-- **Environments** are standard [verifiers](https://github.com/PrimeIntellect-ai/verifiers) modules — any environment on the public Environments Hub runs here unmodified.
-- **Evaluations** run rollouts against any OpenAI-compatible endpoint, with response caching, rate-limit pacing, and resume built in.
-- **Training** is a deliberately synchronous GRPO + LoRA loop — a for-loop you can read, checkpointed every 10 steps.
-- **Inference** serves trained adapters (vLLM `--enable-lora`; llama.cpp as the laptop path) so the lab can re-measure its own output.
-- Everything lands in **one SQLite file**: runs, samples, reward curves, adapters, token ledger.
+Everything lands in one SQLite file; a local web app (`nanolab ui`) and a static
+lab notebook (`nanolab report`) render it. No cloud, no accounts, no build steps.
+
+## Receipts, not claims
+
+- **The anchor check.** nanolab's eval station builds the same configuration the
+  reference `vf-eval` tool builds and executes it through the same library code
+  path. Verified live: identical config → **0.875 vs 0.875**, matching to every
+  decimal on every example — and re-verified after each change to the rollout
+  path.
+- **Trainability gate, hard-coded.** Training refuses to start unless the
+  baseline reward sits in the 10–80% window (GRPO learns from mixed groups;
+  all-failures or all-successes teach nothing). This gate caught two real bugs
+  before they could waste GPU-hours.
+- **Memory lift is real.** In the `scribe-stream` environment, a frozen Player
+  scores **0%** on dependent tasks without notes and **85.7%** with a
+  Scribe-maintained notebook (10 held-out streams, zero errors). The reward —
+  **Lift** — is exactly that difference.
+- **Training moves weights in the right direction.** One GRPO step on a live
+  model: 3/3 rewarded completions became more likely, 5/5 punished completions
+  less likely, base weights untouched (LoRA). It's a permanent regression test.
 
 ## Quickstart
 
 ```bash
 uv sync
-uv run nanolab env install primeintellect/alphabet-sort
-uv run nanolab env list
+uv run nanolab env install primeintellect/gsm8k   # any hub environment works
+uv run nanolab eval run gsm8k -m <model> -n 10    # any OpenAI-compatible endpoint
+uv run nanolab ui                                  # the web app
 ```
 
-## The CLI
+Evals are cached (identical config returns in milliseconds), resumable, and
+every API token is ledgered.
 
-| Verb | What it does | Status |
+## The stations
+
+| Command | What it does |
+|---|---|
+| `nanolab env install/list` | install verifiers-format environments (hub-compatible) |
+| `nanolab eval run/show/list/compare` | rollouts + rubric scoring; rollout-level inspection; A/B deltas |
+| `nanolab train <config.toml> --resume` | GRPO+LoRA, synchronous loop, checkpoint/resume, deterministic batch replay |
+| `nanolab training list/show` | reward curves (terminal sparklines) + checkpoint registry |
+| `nanolab deployments create/list/stop` | serve adapters via vLLM `--enable-lora`; `base:adapter` model strings |
+| `nanolab instrument <run> [<run>]` | the four-column instrument (below) |
+| `nanolab ui` / `nanolab report` | local web app / self-contained HTML notebook |
+
+Training runs free on a Colab/Kaggle T4: `notebooks/train_gsm8k_colab.ipynb`
+is four idempotent cells — on Kaggle, *Save & Run All* trains in the background
+with no tab open. Multi-turn environments train through a built-in policy
+server, so conversation-based rewards (like Lift) use the same trainer.
+
+## The four-column instrument
+
+Where does improvement actually live? For the same tasks:
+
+| | column | measures |
 |---|---|---|
-| `nanolab env` | install / list environments | ✅ working |
-| `nanolab eval` | run rollouts, score with rubrics, inspect runs | Phase 2 |
-| `nanolab train` | GRPO+LoRA from a TOML config, resumable | Phase 3 |
-| `nanolab deployments` | serve adapters, `base:adapter` model strings | Phase 5 |
-| `nanolab report` | static leaderboard.html from the db | Phase 2 |
+| 1 | `base` | the frozen Player alone |
+| 2 | `+context` | the Player reading a trained/prompted notebook |
+| 3 | `+weights` | a LoRA-trained Player alone |
+| 4 | `+both` | trained Player + notebook |
 
-The full build plan — phase by phase, with explicit "done when" checks — is in [PLAN.md](PLAN.md).
+If +context ≈ +weights, the failure was **missing knowledge** — text closes it,
+on any model, including closed ones. If +weights ≫ +context, it was **missing
+skill** — only training closes it. Current live reading on `scribe-stream`:
+`base 0.000 · +context +0.857 · +weights/+both pending the next adapter`.
 
-## Design principles
+## The Scribe (the destination)
 
-1. **Synchronous over clever.** No orchestrators. At single-user scale a for-loop is correct.
-2. **One scalar reward.** Every environment reduces to one number, or it isn't ready.
-3. **Cache and resume everything.** API responses, rollouts, checkpoints — assume every long process gets killed.
-4. **Anchored numbers.** The eval runner must reproduce `vf-eval`'s results on identical configs; that check re-runs after every refactor of the rollout path.
-5. **Every phase ends in an artifact** — a table, a curve, an adapter, a page. Not a feeling.
+`environments/scribe_stream/` is a stream environment: 8 chained tasks where
+each later task needs a figure revealed only by an earlier one. A frozen Player
+attempts each task statelessly; the model under test — the **Scribe** — can do
+exactly one thing: rewrite a notebook capped at ~1,500 tokens. Reward = Lift.
+Anti-cheat trio: the cap (kills log-dumping), held-out stream seeds (kills
+memorizing), the frozen Player (kills "the model just got better"). The next
+milestone is GRPO-training a small Scribe on Lift with nanolab's own trainer.
 
-## The capstone: the Scribe
+## Status
 
-Once the loop closes, it trains its first interesting tenant: a small model whose only ability is writing notes. A frozen Player model works through a stream of related tasks; the **Scribe** maintains a token-capped notebook between tasks; the Scribe's reward is **Lift** — how much its notes improve the Player on future, held-out tasks. If it works, a small model trained in this lab measurably out-teaches its untrained self. See Phase 7 in [PLAN.md](PLAN.md).
+v0.1.0-dev. Working and verified: environments, evals (+anchor), the trainer
+(mechanically proven; first score-moving run in progress), serving code, the
+Scribe environment (S1 passed), the web app, 52 tests, CI. Remaining for
+v0.1.0: a training run that beats its baseline on the held-out exam, and the
+live served-adapter loop closure.
 
 ## Layout
 
 ```
-├── nanolab/          # cli, db (SQLite), envs, evaluate, train, serve, ledger, report
-├── configs/          # training TOMLs
-├── tests/            # network-free smoke tests (CI runs these)
-└── results/          # gitignored artifacts: the db, eval tables, leaderboard.html
+├── nanolab/            # cli, api+ui, db, envs, evaluate, train, serve, instrument, …
+├── environments/       # scribe_stream (verifiers MultiTurnEnv)
+├── configs/            # training TOMLs
+├── notebooks/          # one-click GPU training
+├── scripts/            # the held-out exam
+├── tests/              # network-free (CI runs these)
+└── results/            # gitignored: the db, eval outputs, leaderboard
 ```
 
-## Status
-
-Phase 1 of 7 complete — the environment station works against the live Hub; eval, training, and serving land next. [PLAN.md](PLAN.md) doubles as the progress tracker.
-
-## License
-
-MIT
+MIT license.
