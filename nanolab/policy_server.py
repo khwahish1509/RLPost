@@ -67,6 +67,7 @@ class PolicyServer:
                 {
                     "id": "policy-completion",
                     "object": "chat.completion",
+                    "created": int(time.time()),
                     "model": body.get("model", self.model_name),
                     "choices": [
                         {

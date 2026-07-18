@@ -58,6 +58,48 @@ def test_policy_server_round_trip():
     assert seen == [[{"role": "user", "content": "hi"}]]
 
 
+def test_rollout_episodes_end_to_end_scribe():
+    """The S2 pipeline minus the GPU: scripted Scribe behind the policy
+    server, full scribe-stream episodes through verifiers' rollout engine,
+    fake Player, Lift rewards, advantage grouping, turn-pair extraction."""
+    pytest.importorskip("scribe_stream")
+    import scribe_stream
+
+    from nanolab.policy_server import PolicyServer
+    from nanolab.train import group_episodes, rollout_episodes
+
+    env = scribe_stream.load_environment(player_model="fake", num_train_streams=2)
+    ds = env.get_dataset()
+    rows = [ds[0], ds[1]]
+
+    def perfect_scribe(messages):
+        records = []
+        for message in messages:
+            content = str(message.get("content", ""))
+            for line in content.splitlines():
+                if line.startswith("RECORD — "):
+                    records.append(line.removeprefix("RECORD — "))
+        return "\n".join(records)
+
+    with PolicyServer(perfect_scribe) as server:
+        outputs = rollout_episodes(
+            env, rows, rollouts_per_example=2,
+            base_url=server.base_url, max_concurrent=2,
+        )
+
+    assert len(outputs) == 4  # 2 streams × 2 rollouts
+    rewards = [o["reward"] for o in outputs]
+    assert all(r == pytest.approx(1.0) for r in rewards)  # perfect notes → full lift
+    groups = group_episodes(rows, outputs)
+    assert [len(g) for g in groups] == [2, 2]
+    pairs = turn_pairs(outputs[0]["prompt"], outputs[0]["completion"])
+    assert len(pairs) == 7  # one training pair per scribe turn
+    # the last notebook must contain every revealed figure
+    final_notebook = pairs[-1][1]
+    for task in rows[0]["info"]["tasks"][:-1]:
+        assert str(task["answer"]) in final_notebook
+
+
 def test_collate_pairs_shapes_and_alignment():
     torch = pytest.importorskip("torch")
     transformers = pytest.importorskip("transformers")

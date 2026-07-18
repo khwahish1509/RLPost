@@ -70,6 +70,9 @@ class TrainConfig:
     # Qwen3-style models burn the whole token budget inside <think> blocks;
     # small-model RL wants direct answers, so thinking is off by default.
     enable_thinking: bool = False
+    env_args: dict = field(default_factory=dict)
+    # trainability pre-flight window; Lift-style rewards may need a wider one
+    trainability_window: tuple[float, float] = TRAINABILITY_WINDOW
     lora: LoraConfig = field(default_factory=LoraConfig)
     raw_toml: str = ""
 
@@ -100,6 +103,14 @@ def load_config(path: str | Path) -> TrainConfig:
     if int(data["max_steps"]) < 1:
         raise TrainError(f"{p}: max_steps must be >= 1")
 
+    window_raw = data.get("trainability_window", list(TRAINABILITY_WINDOW))
+    if (
+        not isinstance(window_raw, list)
+        or len(window_raw) != 2
+        or not all(isinstance(x, (int, float)) for x in window_raw)
+    ):
+        raise TrainError(f"{p}: trainability_window must be [low, high]")
+
     lora_raw = data.get("lora", {})
     config = TrainConfig(
         model=str(data["model"]),
@@ -115,6 +126,8 @@ def load_config(path: str | Path) -> TrainConfig:
         micro_batch_size=int(data.get("micro_batch_size", 8)),
         max_grad_norm=float(data.get("max_grad_norm", 1.0)),
         enable_thinking=bool(data.get("enable_thinking", False)),
+        env_args=dict(envs_[0].get("args", {})),
+        trainability_window=(float(window_raw[0]), float(window_raw[1])),
         lora=LoraConfig(
             r=int(lora_raw.get("r", 16)),
             alpha=int(lora_raw.get("alpha", 32)),
@@ -163,9 +176,11 @@ def sparkline(values: list[float]) -> str:
     )
 
 
-def check_trainability(mean_reward: float) -> None:
-    """PI's product rule: outside the 10–80% window there is nothing to train."""
-    lo, hi = TRAINABILITY_WINDOW
+def check_trainability(
+    mean_reward: float, window: tuple[float, float] = TRAINABILITY_WINDOW
+) -> None:
+    """The product rule: outside the window there is nothing to train."""
+    lo, hi = window
     if mean_reward < lo:
         raise TrainError(
             f"Pre-flight failed: baseline reward {mean_reward:.3f} < {lo} — the "
@@ -301,6 +316,79 @@ def load_single_turn_env(env_id: str):
     return env
 
 
+def load_env(env_id: str, env_args: dict | None = None):
+    """Load an environment; returns (env, is_multi_turn).
+
+    Single-turn envs train via local generation + offline rubric scoring.
+    Multi-turn envs train via served rollouts: the policy is exposed as an
+    OpenAI endpoint and verifiers' own rollout engine drives full episodes.
+    """
+    import verifiers as vf
+
+    from nanolab import envs as nanolab_envs
+
+    env = nanolab_envs.load(env_id, **(env_args or {}))
+    if type(env).__name__ == "SingleTurnEnv":
+        return env, False
+    if isinstance(env, vf.MultiTurnEnv):
+        return env, True
+    raise TrainError(
+        f"{env_id} is a {type(env).__name__}, which the trainer doesn't support"
+    )
+
+
+def rollout_episodes(
+    env,
+    rows: list[dict],
+    rollouts_per_example: int,
+    base_url: str,
+    served_model: str = "policy",
+    temperature: float = 1.0,
+    max_concurrent: int = 4,
+) -> list[dict]:
+    """Run full episodes against an OpenAI-compatible endpoint using
+    verifiers' own rollout engine; returns RolloutOutputs (rewards included).
+    Mirrors _get_eval_inputs: inputs = rows repeated rollouts_per_example
+    times; copies share example_id, which is the advantage-grouping key."""
+    import asyncio
+
+    from verifiers.types import ClientConfig
+
+    os.environ.setdefault("NANOLAB_POLICY_KEY", "local")
+    client = ClientConfig(
+        client_type="openai_chat_completions",
+        api_key_var="NANOLAB_POLICY_KEY",
+        api_base_url=base_url,
+    )
+    inputs = [dict(row) for _ in range(rollouts_per_example) for row in rows]
+    outputs = asyncio.run(
+        env.generate(
+            inputs=inputs,
+            client=client,
+            model=served_model,
+            sampling_args={"temperature": temperature},
+            max_concurrent=max_concurrent,
+        )
+    )
+    return list(outputs["outputs"])
+
+
+def group_episodes(rows: list[dict], outputs: list[dict]) -> list[list[dict]]:
+    """Group RolloutOutputs into per-example episode lists, in row order."""
+    by_example: dict = {}
+    for out in outputs:
+        by_example.setdefault(out.get("example_id"), []).append(out)
+    groups = []
+    for row in rows:
+        episode = by_example.get(row.get("example_id"))
+        if not episode:
+            raise TrainError(
+                f"no rollouts returned for example_id {row.get('example_id')!r}"
+            )
+        groups.append(episode)
+    return groups
+
+
 def score_completions(env, rows: list[dict], completions: list[str]) -> list[float]:
     """Score plain-text completions with the env's own rubric, no API."""
     import asyncio
@@ -399,7 +487,7 @@ def train(config_path: str | Path, resume: bool = False) -> int:
 
     import torch
 
-    env = load_single_turn_env(config.env_id)
+    env, multi_turn = load_env(config.env_id, config.env_args)
     dataset = env.get_dataset()
 
     conn = db.connect()
@@ -522,33 +610,138 @@ def train(config_path: str | Path, resume: bool = False) -> int:
         register_adapter(conn, run_id, config.model, step, str(path))
         return str(path)
 
-    try:
-        # pre-flight: the trainability window, on the untouched policy
-        if start_step == 0:
-            rows = [dataset[i] for i in batch_indices(config.seed, -1, len(dataset), config.batch_size)]
-            texts, _, _ = generate_batch(rows)
-            expanded = [r for r in rows for _ in range(config.rollouts_per_example)]
-            baseline = score_completions(env, expanded, texts)
-            mean_baseline = sum(baseline) / len(baseline)
-            print(f"pre-flight baseline reward: {mean_baseline:.3f}")
-            print(f"pre-flight sample completion: {texts[0][:300]!r}")
-            check_trainability(mean_baseline)
+    def policy_generate(messages) -> str:
+        """One conversation in, one sampled reply out (used by PolicyServer)."""
+        model.gradient_checkpointing_disable()
+        base.config.use_cache = True
+        model.eval()
+        try:
+            prompt = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=config.enable_thinking,
+            )
+            enc = tokenizer([prompt], return_tensors="pt").to(device)
+            with torch.no_grad():
+                seqs = model.generate(
+                    **enc,
+                    do_sample=True,
+                    temperature=config.temperature,
+                    max_new_tokens=config.max_new_tokens,
+                    pad_token_id=tokenizer.pad_token_id,
+                )
+            return tokenizer.decode(
+                seqs[0, enc["input_ids"].shape[1] :], skip_special_tokens=True
+            )
+        finally:
+            model.train()
 
-        for step in range(start_step, config.max_steps):
-            rows = [dataset[i] for i in batch_indices(config.seed, step, len(dataset), config.batch_size)]
-            texts, seqs, completion_ids = generate_batch(rows)
-            expanded = [r for r in rows for _ in range(config.rollouts_per_example)]
-            rewards = score_completions(env, expanded, texts)
-            advantages = group_advantages(rewards, config.rollouts_per_example)
-            if device == "cuda":
-                torch.cuda.empty_cache()  # release generation buffers before the loss pass
-            loss = grpo_step(seqs, completion_ids, advantages)
-            mean_reward = sum(rewards) / len(rewards)
-            log_step(conn, run_id, step, mean_reward, loss)
-            print(f"step {step:4d}  reward {mean_reward:.3f}  loss {loss:.4f}")
-            if (step + 1) % config.checkpoint_every == 0 or step == config.max_steps - 1:
-                path = save_checkpoint(step)
-                print(f"  checkpoint → {path}")
+    def multiturn_step(rows: list[dict], server) -> tuple[float, float]:
+        """Served episodes → per-turn pairs → one GRPO update."""
+        outputs = rollout_episodes(
+            env,
+            rows,
+            config.rollouts_per_example,
+            server.base_url,
+            temperature=config.temperature,
+        )
+        groups = group_episodes(rows, outputs)
+        episode_rewards: list[float] = []
+        triples: list[tuple[list[dict], str, float]] = []
+        for group in groups:
+            rewards = [float(o.get("reward") or 0.0) for o in group]
+            episode_rewards.extend(rewards)
+            advantages = group_advantages(rewards, len(rewards))
+            for out, adv in zip(group, advantages):
+                for context, text in turn_pairs(
+                    out.get("prompt") or [], out.get("completion") or []
+                ):
+                    if text.strip():
+                        triples.append((context, text, adv))
+        mean_reward = sum(episode_rewards) / len(episode_rewards)
+        if not triples:
+            return mean_reward, 0.0
+        model.gradient_checkpointing_enable()
+        optimizer.zero_grad(set_to_none=True)
+        total_loss = 0.0
+        n_chunks = 0
+        for i in range(0, len(triples), config.micro_batch_size):
+            chunk = triples[i : i + config.micro_batch_size]
+            seqs, comps = collate_pairs(
+                tokenizer,
+                [(c, t) for c, t, _ in chunk],
+                device,
+                config.enable_thinking,
+            )
+            total_loss += grpo_backward(
+                model, seqs, comps, [a for _, _, a in chunk],
+                tokenizer.pad_token_id, len(chunk),
+            )
+            n_chunks += 1
+        torch.nn.utils.clip_grad_norm_(
+            (p for p in model.parameters() if p.requires_grad), config.max_grad_norm
+        )
+        optimizer.step()
+        return mean_reward, total_loss / max(n_chunks, 1)
+
+    try:
+        if multi_turn:
+            from .policy_server import PolicyServer
+
+            with PolicyServer(policy_generate) as server:
+                if start_step == 0:
+                    rows = [dataset[i] for i in batch_indices(config.seed, -1, len(dataset), config.batch_size)]
+                    outs = rollout_episodes(
+                        env, rows, config.rollouts_per_example,
+                        server.base_url, temperature=config.temperature,
+                    )
+                    rewards = [float(o.get("reward") or 0.0) for o in outs]
+                    mean_baseline = sum(rewards) / len(rewards)
+                    print(f"pre-flight baseline reward: {mean_baseline:.3f}")
+                    first_turns = turn_pairs(
+                        outs[0].get("prompt") or [], outs[0].get("completion") or []
+                    )
+                    if first_turns:
+                        print(f"pre-flight sample turn: {first_turns[0][1][:300]!r}")
+                    check_trainability(mean_baseline, config.trainability_window)
+                for step in range(start_step, config.max_steps):
+                    rows = [dataset[i] for i in batch_indices(config.seed, step, len(dataset), config.batch_size)]
+                    if device == "cuda":
+                        torch.cuda.empty_cache()
+                    mean_reward, loss = multiturn_step(rows, server)
+                    log_step(conn, run_id, step, mean_reward, loss)
+                    print(f"step {step:4d}  reward {mean_reward:.3f}  loss {loss:.4f}")
+                    if (step + 1) % config.checkpoint_every == 0 or step == config.max_steps - 1:
+                        path = save_checkpoint(step)
+                        print(f"  checkpoint → {path}")
+        else:
+            # pre-flight: the trainability window, on the untouched policy
+            if start_step == 0:
+                rows = [dataset[i] for i in batch_indices(config.seed, -1, len(dataset), config.batch_size)]
+                texts, _, _ = generate_batch(rows)
+                expanded = [r for r in rows for _ in range(config.rollouts_per_example)]
+                baseline = score_completions(env, expanded, texts)
+                mean_baseline = sum(baseline) / len(baseline)
+                print(f"pre-flight baseline reward: {mean_baseline:.3f}")
+                print(f"pre-flight sample completion: {texts[0][:300]!r}")
+                check_trainability(mean_baseline, config.trainability_window)
+
+            for step in range(start_step, config.max_steps):
+                rows = [dataset[i] for i in batch_indices(config.seed, step, len(dataset), config.batch_size)]
+                texts, seqs, completion_ids = generate_batch(rows)
+                expanded = [r for r in rows for _ in range(config.rollouts_per_example)]
+                rewards = score_completions(env, expanded, texts)
+                advantages = group_advantages(rewards, config.rollouts_per_example)
+                if device == "cuda":
+                    torch.cuda.empty_cache()  # release generation buffers before the loss pass
+                loss = grpo_step(seqs, completion_ids, advantages)
+                mean_reward = sum(rewards) / len(rewards)
+                log_step(conn, run_id, step, mean_reward, loss)
+                print(f"step {step:4d}  reward {mean_reward:.3f}  loss {loss:.4f}")
+                if (step + 1) % config.checkpoint_every == 0 or step == config.max_steps - 1:
+                    path = save_checkpoint(step)
+                    print(f"  checkpoint → {path}")
         finish_run(conn, run_id, "done")
         print(f"run #{run_id} complete")
         return run_id
