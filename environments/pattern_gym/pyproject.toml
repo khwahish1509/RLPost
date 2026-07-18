@@ -1,0 +1,16 @@
+[project]
+name = "pattern-gym"
+version = "0.1.0"
+description = "Rule-induction micro-tasks: infer a hidden transformation from three demos, apply it exactly. Difficulty tuned for the 10-80% trainability window; seeded train/eval splits; rule families ready for memory streams."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "verifiers>=0.2.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pattern_gym"]

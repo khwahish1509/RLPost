@@ -247,6 +247,45 @@ svg text { font:9px var(--mono); fill:var(--dim); }
 .guide .step { display:flex; gap:.7rem; margin:.5rem 0; }
 .guide .step b.n { color:var(--accent); font-family:var(--mono); }
 
+/* env detail: repo-style page */
+.tabs { display:flex; gap:.15rem; border-bottom:1px solid var(--border);
+  margin:1rem 0 1.1rem; }
+.tab { background:none; border:none; color:var(--dim); font:12.5px var(--sans);
+  padding:.5rem .8rem; cursor:pointer; border-bottom:2px solid transparent;
+  margin-bottom:-1px; }
+.tab:hover { color:var(--text); }
+.tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+.repo { display:grid; grid-template-columns:1fr 250px; gap:1.3rem;
+  align-items:start; }
+@media (max-width:960px) { .repo { grid-template-columns:1fr; } }
+.about { background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--r); padding:.95rem 1.05rem; font-size:12px; }
+.about h4 { font:10.5px var(--mono); text-transform:uppercase;
+  letter-spacing:.08em; color:var(--dim); margin:.9rem 0 .3rem; }
+.about h4:first-child { margin-top:0; }
+.about .dep { font:11.5px var(--mono); color:var(--dim); display:block;
+  padding:.1rem 0; }
+.readme { background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--r); padding:1.2rem 1.4rem; line-height:1.65;
+  font-size:13px; overflow-x:auto; }
+.readme h1 { font-size:17px; margin:.2rem 0 .6rem; }
+.readme h2 { font-size:14px; margin:1.2rem 0 .4rem; }
+.readme code { font:12px var(--mono); background:var(--surface2);
+  border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
+.readme pre { background:var(--surface2); border:1px solid var(--border);
+  border-radius:var(--r-sm); padding:.8rem 1rem; overflow-x:auto; }
+.readme pre code { border:none; background:none; padding:0; }
+.readme ul { padding-left:1.3rem; }
+.filecard { border:1px solid var(--border); border-radius:var(--r-sm);
+  background:var(--surface); margin-bottom:.5rem; }
+.filecard summary { padding:.5rem .8rem; cursor:pointer; list-style:none;
+  font:12px var(--mono); color:var(--dim); }
+.filecard summary::-webkit-details-marker { display:none; }
+.filecard[open] summary { border-bottom:1px solid var(--border);
+  color:var(--text); }
+.filecard pre { margin:0; padding:.8rem 1rem; overflow-x:auto;
+  font:11.5px var(--mono); line-height:1.55; max-height:480px; }
+
 /* skeleton loading */
 .skel { border-radius:var(--r-sm);
   background:linear-gradient(100deg,var(--surface) 40%,var(--surface2) 50%,var(--surface) 60%);

@@ -218,7 +218,8 @@ async function environments() {
   const cards = envs.length
     ? `<div class="cards">${envs
         .map(
-          (e) => `<div class="card">
+          (e) => `<div class="card click" style="cursor:pointer"
+            onclick="location.hash='#/env/${esc(e.env_id)}'">
           <div class="name">${esc(e.slug)}</div>
           <div class="meta">v${esc(e.version)} · installed ${esc(
             (e.installed_at || "").slice(0, 10))} ${
@@ -387,6 +388,95 @@ async function inference() {
     cli("nanolab deployments create <adapter-id>"))}${tbl}`;
 }
 
+/* minimal markdown renderer: headings, fenced code, inline code, bold,
+   links, bullet lists, paragraphs — enough for environment READMEs */
+function md(src) {
+  const blocks = String(src || "").split(/```/);
+  let html = "";
+  blocks.forEach((block, i) => {
+    if (i % 2 === 1) {
+      const body = block.replace(/^[a-z]*\n/, "");
+      html += `<pre><code>${esc(body)}</code></pre>`;
+      return;
+    }
+    const lines = block.split("\n");
+    let list = false, para = [];
+    const flush = () => {
+      if (para.length) { html += `<p>${para.join(" ")}</p>`; para = []; }
+    };
+    const inline = (s) =>
+      esc(s)
+        .replace(/`([^`]+)`/g, "<code>$1</code>")
+        .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+        .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,
+          '<a href="$2" target="_blank" style="color:var(--accent)">$1</a>');
+    lines.forEach((line) => {
+      const h = line.match(/^(#{1,3})\s+(.*)/);
+      const li = line.match(/^\s*[-*]\s+(.*)/);
+      if (h) { flush(); if (list) { html += "</ul>"; list = false; }
+        html += `<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`; }
+      else if (li) { flush(); if (!list) { html += "<ul>"; list = true; }
+        html += `<li>${inline(li[1])}</li>`; }
+      else if (!line.trim()) { flush(); if (list) { html += "</ul>"; list = false; } }
+      else para.push(inline(line));
+    });
+    flush(); if (list) html += "</ul>";
+  });
+  return html;
+}
+
+let envTab = "overview";
+window.setEnvTab = (t) => { envTab = t; render(); };
+
+async function envDetail(id) {
+  const d = await api(`/environments/${id}`);
+  const tabs = ["overview", "code", "leaderboard"]
+    .map((t) => `<button class="tab${envTab === t ? " active" : ""}"
+      onclick="setEnvTab('${t}')">${t[0].toUpperCase() + t.slice(1)}${
+      t === "leaderboard" ? ` (${d.leaderboard.length})` : ""}</button>`)
+    .join("");
+
+  let body = "";
+  if (envTab === "overview") {
+    const best = d.leaderboard[0];
+    body = `<div class="repo">
+      <div class="readme">${d.readme ? md(d.readme)
+        : `<p class="dim">${esc(d.summary || "No README shipped with this package.")}</p>`}</div>
+      <div class="about">
+        <h4>about</h4>
+        <div>${esc(d.summary || "—")}</div>
+        <h4>version</h4><div class="mono">v${esc(d.version || "?")}</div>
+        <h4>python</h4><div class="mono">${esc(d.requires_python || "—")}</div>
+        <h4>best score</h4>
+        <div class="mono">${best ? `${fmt(best.mean_reward)} · ${esc(best.model)}` : "not evaluated yet"}</div>
+        <h4>installed</h4><div class="mono">${esc((d.installed_at || "").slice(0, 10))}</div>
+        <h4>dependencies</h4>
+        ${(d.requires || []).map((r) => `<span class="dep">${esc(r)}</span>`).join("") || "—"}
+      </div></div>`;
+  } else if (envTab === "code") {
+    body = d.files.length
+      ? d.files.map((f, i) => `<details class="filecard"${i === 0 ? " open" : ""}>
+          <summary>${esc(f.name)}</summary><pre>${esc(f.content)}</pre></details>`).join("")
+      : '<div class="empty">source not found in the venv</div>';
+  } else {
+    body = d.leaderboard.length
+      ? table(
+          ["#", "model", "reward", "samples", "date"],
+          d.leaderboard.map(
+            (r, i) => `<tr class="click" onclick="location.hash='#/evals/${r.id}'">
+             <td class="num rank">${i + 1}</td><td>${modelChip(r.model)}</td>
+             <td>${reward(r.mean_reward)}</td>
+             <td class="num">${r.num_examples}×${r.rollouts_per_example}</td>
+             <td class="num dim">${esc((r.finished_at || "").slice(0, 10))}</td></tr>`))
+      : empty("chart", "No evaluations yet",
+          "Run one from the Evaluations page and it will rank here.");
+  }
+  return `<a class="back" href="#/environments">← Environments</a>
+    ${head(d.slug, d.summary || "environment",
+      `<button class="btn" onclick="location.hash='#/evals'">Evaluate</button>`)}
+    <div class="tabs">${tabs}</div>${body}`;
+}
+
 async function guide() {
   return `${head("How to use nanolab", "the 2-minute tour — no terminal needed")}
   <div class="guide">
@@ -508,6 +598,7 @@ const routes = [
   [/^#?\/?$/, overview, "overview"],
   [/^#\/overview$/, overview, "overview"],
   [/^#\/environments$/, environments, "environments"],
+  [/^#\/env\/([\w.-]+)$/, envDetail, "environments"],
   [/^#\/evals$/, evals, "evals"],
   [/^#\/evals\/(\d+)$/, evalDetail, "evals"],
   [/^#\/training$/, training, "training"],

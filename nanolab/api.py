@@ -163,6 +163,71 @@ def _environments() -> list[dict]:
     return installed
 
 
+def _environment_detail(env_id: str) -> dict | None:
+    """Everything the repo-style page needs: metadata, README, deps, source
+    files, and this environment's leaderboard — all from the local install."""
+    from importlib import metadata as im
+    from importlib.util import find_spec
+
+    conn = db.connect()
+    try:
+        row = db.get_environment(conn, env_id)
+        if row is None:
+            return None
+        leaderboard = _rows(
+            conn.execute(
+                """
+                SELECT e.id, e.model, e.status, e.mean_reward, e.num_examples,
+                       e.rollouts_per_example, e.finished_at
+                FROM eval_runs e JOIN environments v ON v.id = e.env_id
+                WHERE v.slug = ? AND e.status = 'done'
+                ORDER BY e.mean_reward DESC, e.id DESC
+                """,
+                (row["slug"],),
+            )
+        )
+    finally:
+        conn.close()
+
+    out: dict = {
+        "slug": row["slug"],
+        "env_id": row["env_id"],
+        "version": row["version"],
+        "installed_at": row["installed_at"],
+        "leaderboard": leaderboard,
+        "summary": None,
+        "readme": None,
+        "requires": [],
+        "requires_python": None,
+        "files": [],
+    }
+    try:
+        dist = im.distribution(row["env_id"])
+        meta = dist.metadata
+        out["summary"] = meta.get("Summary")
+        out["requires"] = meta.get_all("Requires-Dist") or []
+        out["requires_python"] = meta.get("Requires-Python")
+        body = meta.get_payload()
+        out["readme"] = body.strip() if body and body.strip() else meta.get("Description")
+    except Exception:
+        pass
+    try:
+        spec = find_spec(row["env_id"].replace("-", "_"))
+        if spec and spec.origin:
+            origin = Path(spec.origin)
+            paths = (
+                sorted(origin.parent.glob("*.py"))
+                if origin.name == "__init__.py"
+                else [origin]
+            )
+            for p in paths[:8]:
+                text = p.read_text(errors="replace")
+                out["files"].append({"name": p.name, "content": text[:40_000]})
+    except Exception:
+        pass
+    return out
+
+
 def _evals() -> list[dict]:
     conn = db.connect()
     try:
@@ -367,6 +432,7 @@ def build_app():
         routes=[
             Route("/api/overview", endpoint(_overview)),
             Route("/api/environments", endpoint(_environments)),
+            Route("/api/environments/{env_id:str}", endpoint(_environment_detail)),
             Route("/api/evals", endpoint(_evals)),
             Route("/api/evals/{run_id:int}", endpoint(_eval_detail)),
             Route("/api/training", endpoint(_training)),
