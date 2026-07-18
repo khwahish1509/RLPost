@@ -421,6 +421,17 @@ def start_run(conn, config: TrainConfig, env_row_id: int | None) -> int:
     return int(cur.lastrowid)
 
 
+def resume_point(steps_completed: int, last_checkpoint_step: int | None) -> int:
+    """Weights truth beats counter truth: resume from checkpoint + 1.
+
+    Steps logged after the last checkpoint used weights that no longer
+    exist, so they are replayed (log_step rewrites their curve points)
+    rather than skipped."""
+    if last_checkpoint_step is None:
+        return 0
+    return min(steps_completed, last_checkpoint_step + 1)
+
+
 def find_resumable_run(conn, config: TrainConfig) -> int | None:
     row = conn.execute(
         "SELECT id FROM train_runs WHERE config_toml = ? AND status IN "
@@ -504,12 +515,14 @@ def train(config_path: str | Path, resume: bool = False) -> int:
         row = conn.execute(
             "SELECT steps_completed FROM train_runs WHERE id = ?", (run_id,)
         ).fetchone()
-        start_step = int(row["steps_completed"])
         ckpt = conn.execute(
-            "SELECT path FROM adapters WHERE train_run_id = ? ORDER BY step DESC LIMIT 1",
+            "SELECT path, step FROM adapters WHERE train_run_id = ? ORDER BY step DESC LIMIT 1",
             (run_id,),
         ).fetchone()
         checkpoint_dir = Path(ckpt["path"]) if ckpt else None
+        start_step = resume_point(
+            int(row["steps_completed"]), int(ckpt["step"]) if ckpt else None
+        )
         conn.execute(
             "UPDATE train_runs SET status = 'running' WHERE id = ?", (run_id,)
         )

@@ -294,6 +294,17 @@ def test_trainability_window():
         train.check_trainability(0.95)
 
 
+def test_resume_point_prefers_checkpoint_truth():
+    from nanolab.train import resume_point
+
+    # died at step 68, newest checkpoint at 59 → replay from 60
+    assert resume_point(69, 59) == 60
+    # died exactly at a checkpoint boundary → continue cleanly
+    assert resume_point(60, 59) == 60
+    # no checkpoint ever written → start over
+    assert resume_point(7, None) == 0
+
+
 def test_batch_indices_deterministic():
     from nanolab import train
 
