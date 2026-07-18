@@ -124,6 +124,10 @@ Done when: a stranger reproduces the Phase-2 anchor check from the README in und
 
 Done when: a small model, trained in our own lab, measurably out-teaches its untrained self — running on our own machinery.
 
+## AFTER v0.1 (the v0.2 flagship)
+
+- [ ] **The instrument panel**: a local single-tenant web UI over the same SQLite file — design direction, tokens, IA, and stack are settled in `docs/frontend-direction.md`. v0.1 already ships the design language as the static lab notebook (`nanolab report`). Prerequisite: a thin read-only HTTP API over the db.
+
 ## ENGINEERING RULES (short, permanent)
 
 1. Synchronous training loop only — no orchestrators, no async. At our scale a for-loop is correct.
