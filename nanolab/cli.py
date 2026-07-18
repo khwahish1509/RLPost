@@ -419,6 +419,17 @@ def deployments_stop(deployment_id: int = typer.Argument(help="Deployment id")) 
 
 
 @app.command()
+def ui(
+    port: int = typer.Option(3456, "--port", "-p"),
+    no_open: bool = typer.Option(False, "--no-open", help="Don't open the browser"),
+) -> None:
+    """Serve the nanolab web app (read-only view over the lab db)."""
+    from . import api
+
+    api.serve_ui(port=port, open_browser=not no_open)
+
+
+@app.command()
 def report() -> None:
     """Render the static leaderboard.html from the db."""
     from . import report as report_mod
