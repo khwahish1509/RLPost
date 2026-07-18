@@ -81,6 +81,81 @@ def test_full_api_surface(client):
     assert client.get("/api/deployments").json() == []
 
 
+def test_eval_action_runs_cli_subprocess(client, monkeypatch):
+    import time
+
+    from nanolab import api as api_mod
+
+    api_mod.JOBS.clear()
+    captured = {}
+    monkeypatch.setattr(api_mod, "_run_subprocess", lambda cmd: captured.setdefault("cmd", cmd))
+    monkeypatch.setenv("NANOLAB_API_BASE_URL", "http://endpoint")
+    monkeypatch.setenv("NANOLAB_API_KEY_VAR", "FAKE_KEY")
+    monkeypatch.setenv("FAKE_KEY", "k")
+    monkeypatch.setenv("NANOLAB_DEFAULT_MODEL", "default-model")
+
+    resp = client.post("/api/actions/eval", json={"env": "gsm8k", "n": 3})
+    assert resp.status_code == 200
+    for _ in range(100):
+        jobs = client.get("/api/jobs").json()
+        if jobs and jobs[0]["status"] != "running":
+            break
+        time.sleep(0.01)
+    assert jobs[0]["status"] == "done"
+    cmd = captured["cmd"]
+    # the exact same CLI a terminal would use, main-thread safe
+    assert cmd[1:6] == ["-m", "nanolab.cli", "eval", "run", "gsm8k"]
+    assert "default-model" in cmd and "--force" in cmd and "3" in cmd
+
+
+def test_eval_action_validates_configuration(client, monkeypatch):
+    for var in ("NANOLAB_API_BASE_URL", "NANOLAB_API_KEY_VAR", "NANOLAB_DEFAULT_MODEL"):
+        monkeypatch.delenv(var, raising=False)
+    assert client.post("/api/actions/eval", json={}).status_code == 400
+    assert client.post("/api/actions/eval", json={"env": "x", "model": "m"}).status_code == 400
+
+
+def test_install_action_runs_as_background_job(client, monkeypatch):
+    import time
+
+    from nanolab import api as api_mod
+    from nanolab import envs
+
+    api_mod.JOBS.clear()
+    called = {}
+    monkeypatch.setattr(envs, "install", lambda slug: called.setdefault("slug", slug))
+    resp = client.post("/api/actions/install", json={"slug": "owner/thing"})
+    assert resp.status_code == 200
+    for _ in range(100):
+        jobs = client.get("/api/jobs").json()
+        if jobs and jobs[0]["status"] != "running":
+            break
+        time.sleep(0.01)
+    assert jobs[0]["status"] == "done" and called["slug"] == "owner/thing"
+
+
+def test_failed_job_carries_error(client, monkeypatch):
+    import time
+
+    from nanolab import api as api_mod
+    from nanolab import envs
+
+    api_mod.JOBS.clear()
+
+    def boom(slug):
+        raise RuntimeError("hub exploded")
+
+    monkeypatch.setattr(envs, "install", boom)
+    client.post("/api/actions/install", json={"slug": "x/y"})
+    for _ in range(100):
+        jobs = client.get("/api/jobs").json()
+        if jobs and jobs[0]["status"] != "running":
+            break
+        time.sleep(0.01)
+    assert jobs[0]["status"] == "failed"
+    assert "hub exploded" in jobs[0]["error"]
+
+
 def test_ui_shell_served(client):
     for path in ("/", "/evals", "/anything"):
         response = client.get(path)

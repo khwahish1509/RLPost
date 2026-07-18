@@ -7,12 +7,65 @@ equality is trivially true. The UI lives in nanolab/ui/ (no build step).
 
 from __future__ import annotations
 
+import itertools
 import json
+import os
+import subprocess
+import sys
+import threading
 from pathlib import Path
 
 from . import db
 
 UI_DIR = Path(__file__).parent / "ui"
+
+# ── background jobs (UI-triggered actions) ──────────────────────────────────
+JOBS: list[dict] = []
+_job_ids = itertools.count(1)
+
+
+def _start_job(kind: str, label: str, target) -> dict:
+    job = {
+        "id": next(_job_ids),
+        "kind": kind,
+        "label": label,
+        "status": "running",
+        "error": None,
+        "started_at": db.utcnow(),
+    }
+    JOBS.insert(0, job)
+    del JOBS[20:]
+
+    def run():
+        try:
+            target()
+            job["status"] = "done"
+        except BaseException as exc:  # surfaced in the UI, not swallowed
+            job["status"] = "failed"
+            job["error"] = str(exc)[:400]
+
+    threading.Thread(target=run, daemon=True).start()
+    return job
+
+
+def _run_subprocess(cmd: list[str]) -> None:
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-3:]
+        raise RuntimeError(" · ".join(tail) or f"exit code {proc.returncode}")
+
+
+def _defaults() -> dict:
+    from . import config as config_mod
+
+    config_mod.load_dotenv()
+    key_var = os.environ.get("NANOLAB_API_KEY_VAR", "")
+    return {
+        "model": os.environ.get("NANOLAB_DEFAULT_MODEL", ""),
+        "base_url": os.environ.get("NANOLAB_API_BASE_URL", ""),
+        "key_var": key_var,
+        "key_present": bool(key_var and os.environ.get(key_var)),
+    }
 
 
 def _rows(cursor) -> list[dict]:
@@ -254,6 +307,62 @@ def build_app():
     async def index(request):
         return FileResponse(UI_DIR / "index.html")
 
+    async def jobs(request):
+        return JSONResponse(JOBS)
+
+    async def action_eval(request):
+        body = await request.json()
+        env = (body.get("env") or "").strip()
+        defaults = _defaults()
+        model = (body.get("model") or "").strip() or defaults["model"]
+        base_url = defaults["base_url"]
+        key_var = defaults["key_var"] or "OPENAI_API_KEY"
+        if not env:
+            return JSONResponse({"error": "pick an environment"}, status_code=400)
+        if not model:
+            return JSONResponse(
+                {"error": "no model — set NANOLAB_DEFAULT_MODEL in .env or type one"},
+                status_code=400,
+            )
+        if not base_url or not os.environ.get(key_var):
+            return JSONResponse(
+                {"error": "no API endpoint/key configured — set NANOLAB_API_BASE_URL "
+                 "and NANOLAB_API_KEY_VAR (+ the key) in the repo's .env"},
+                status_code=400,
+            )
+        n = int(body.get("n") or 5)
+        r = int(body.get("r") or 1)
+        temperature = body.get("temperature")
+
+        # evals run as a subprocess of the CLI, not in a thread: environment
+        # rubrics may install signal handlers (main-thread-only), and this
+        # keeps exactly one code path for evals however they're triggered
+        cmd = [
+            sys.executable, "-m", "nanolab.cli", "eval", "run", env,
+            "-m", model, "-b", base_url, "-k", key_var,
+            "-n", str(n), "-r", str(r), "-c", "2", "--force",
+        ]
+        if temperature not in (None, ""):
+            cmd += ["-T", str(temperature)]
+
+        def run_eval():
+            _run_subprocess(cmd)
+
+        return JSONResponse({"job": _start_job("eval", f"eval · {env} · {model}", run_eval)})
+
+    async def action_install(request):
+        body = await request.json()
+        slug = (body.get("slug") or "").strip()
+        if not slug:
+            return JSONResponse({"error": "environment name required"}, status_code=400)
+
+        def run_install():
+            from . import envs
+
+            envs.install(slug)
+
+        return JSONResponse({"job": _start_job("install", f"install · {slug}", run_install)})
+
     return Starlette(
         routes=[
             Route("/api/overview", endpoint(_overview)),
@@ -263,6 +372,10 @@ def build_app():
             Route("/api/training", endpoint(_training)),
             Route("/api/training/{run_id:int}", endpoint(_training_detail)),
             Route("/api/deployments", endpoint(_deployments)),
+            Route("/api/defaults", endpoint(_defaults)),
+            Route("/api/jobs", jobs),
+            Route("/api/actions/eval", action_eval, methods=["POST"]),
+            Route("/api/actions/install", action_install, methods=["POST"]),
             Mount("/assets", StaticFiles(directory=UI_DIR), name="assets"),
             Route("/", index),
             Route("/{path:path}", index),  # hash-router fallback

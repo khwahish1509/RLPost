@@ -93,9 +93,66 @@ const curveSvg = (rewards, w = 220, h = 44, endDot = true) => {
   </svg>`;
 };
 
-const head = (title, sub, cmd) =>
+const head = (title, sub, action = "") =>
   `<div class="page-head"><div><h1>${esc(title)}</h1>
-   <div class="sub">${esc(sub)}</div></div>${cmd ? cli(cmd) : ""}</div>`;
+   <div class="sub">${esc(sub)}</div></div><div>${action}</div></div>`;
+
+async function post(path, body) {
+  const r = await fetch("/api" + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || `${r.status}`);
+  return data;
+}
+
+const jobsStrip = async () => {
+  try {
+    const jobs = await api("/jobs");
+    const active = jobs.filter(
+      (j) => j.status === "running" || j.status === "failed").slice(0, 4);
+    if (!active.length) return "";
+    return `<div class="activity">${active
+      .map((j) => `<div class="job ${j.status}">
+        ${j.status === "running"
+          ? '<span class="st running"><i></i></span>'
+          : '<span class="st failed"><i></i></span>'}
+        <span class="mono">${esc(j.label)}</span>
+        ${j.error ? `<span class="err" title="${esc(j.error)}">${esc(j.error)}</span>` : ""}
+      </div>`).join("")}</div>`;
+  } catch { return ""; }
+};
+
+window.togglePanel = (id) => {
+  const el = document.getElementById(id);
+  if (el) el.style.display = el.style.display === "none" ? "" : "none";
+};
+
+window.submitEval = async (btn) => {
+  const panel = btn.closest(".panel");
+  const val = (name) => panel.querySelector(`[name=${name}]`).value;
+  btn.disabled = true;
+  try {
+    await post("/actions/eval", {
+      env: val("env"), model: val("model"), n: val("n"), r: val("r"),
+    });
+    toast("eval started — it will appear below");
+    setTimeout(render, 600);
+  } catch (err) { toast(err.message); btn.disabled = false; }
+};
+
+window.submitInstall = async (btn) => {
+  const input = btn.closest(".panel").querySelector("[name=slug]");
+  if (!input.value.trim()) { toast("type an environment name"); return; }
+  btn.disabled = true;
+  try {
+    await post("/actions/install", { slug: input.value });
+    toast("installing — takes a minute");
+    setTimeout(render, 600);
+  } catch (err) { toast(err.message); btn.disabled = false; }
+};
 
 const table = (headers, rows) =>
   `<div class="tablewrap"><table><tr>${headers
@@ -134,7 +191,7 @@ async function overview() {
     : empty("wave", "Run your first training run",
         "Train LoRA adapters with reinforcement learning on an environment.",
         "nanolab train configs/qwen3-0.6b-gsm8k.toml");
-  return `${head("Overview", "one CLI · one SQLite file · one closed RL loop", "nanolab ui")}
+  return `${head("Overview", "one CLI · one SQLite file · one closed RL loop", cli("nanolab ui"))}
     <div class="kpis">
       ${kpi(d.evals.done, "evals done", `${d.evals.active} active`)}
       ${kpi(d.best ? fmt(d.best.mean_reward) : "—", "best reward",
@@ -148,7 +205,16 @@ async function overview() {
 }
 
 async function environments() {
-  const envs = await api("/environments");
+  const [envs, strip] = await Promise.all([api("/environments"), jobsStrip()]);
+  const form = `<div class="panel" id="install-form" style="display:none">
+    <div class="row">
+      <div class="field"><label>environment name</label>
+        <input name="slug" placeholder="primeintellect/gsm8k" style="min-width:240px"></div>
+      <button class="btn" onclick="submitInstall(this)">Install</button>
+    </div>
+    <div class="hint">Anything from the public Environments Hub works —
+      browse it at <b>app.primeintellect.ai</b> and paste the name here.</div>
+  </div>`;
   const cards = envs.length
     ? `<div class="cards">${envs
         .map(
@@ -166,11 +232,32 @@ async function environments() {
         "Environments are tasks plus automatic graders, in the standard verifiers format.",
         "nanolab env install primeintellect/gsm8k");
   return `${head("Environments", "tasks + automatic graders, hub-compatible",
-    "nanolab env install <owner/name>")}${cards}`;
+    `<button class="btn" onclick="togglePanel('install-form')">＋ Install environment</button>`)}
+    ${strip}${form}${cards}`;
 }
 
 async function evals() {
-  const runs = await api("/evals");
+  const [runs, envs, defaults, strip] = await Promise.all([
+    api("/evals"), api("/environments"), api("/defaults"), jobsStrip(),
+  ]);
+  const form = `<div class="panel" id="eval-form" style="display:none">
+    <div class="row">
+      <div class="field"><label>environment</label>
+        <select name="env">${envs
+          .map((e) => `<option value="${esc(e.env_id)}">${esc(e.slug)}</option>`)
+          .join("")}</select></div>
+      <div class="field"><label>model</label>
+        <input name="model" value="${esc(defaults.model)}" placeholder="model name"></div>
+      <div class="field"><label>questions</label>
+        <input name="n" type="number" value="5" min="1" max="50" style="min-width:70px"></div>
+      <div class="field"><label>tries each</label>
+        <input name="r" type="number" value="1" min="1" max="8" style="min-width:70px"></div>
+      <button class="btn" onclick="submitEval(this)">Start</button>
+    </div>
+    <div class="hint">${defaults.key_present
+      ? `Runs against <b>${esc(defaults.base_url)}</b> using your saved key. Costs a few cents of API credit.`
+      : `<span style="color:var(--warn)">No API key configured — add one to the repo's .env first.</span>`}</div>
+  </div>`;
   const tbl = runs.length
     ? table(
         ["run", "env", "model", "status", "reward", "samples", "err", "date", ""],
@@ -187,8 +274,9 @@ async function evals() {
     : empty("chart", "Run your first evaluation",
         "An eval sends each task to a model and scores every answer with the environment's rubric.",
         "nanolab eval run gsm8k -m <model>");
-  return `${head("Evaluations", "rollouts + rubric scoring, cached and resumable",
-    "nanolab eval run <env> -m <model>")}
+  return `${head("Evaluations", "measure a model on an environment — click a row to inspect",
+    `<button class="btn" onclick="togglePanel('eval-form')">＋ New evaluation</button>`)}
+    ${strip}${form}
     <div class="kpis">
       ${kpi(runs.filter((r) => ["running", "pending"].includes(r.status)).length,
         "active evals", "pending or running")}
@@ -217,7 +305,7 @@ async function evalDetail(id) {
         </summary>${convo}</details>`;
     }).join("");
   return `<a class="back" href="#/evals">← Evaluations</a>
-    ${head(`Eval run #${d.id}`, `${d.env} · ${d.model}`, `nanolab eval show ${d.id}`)}
+    ${head(`Eval run #${d.id}`, `${d.env} · ${d.model}`, cli(`nanolab eval show ${d.id}`))}
     <div class="kpis">
       ${kpi(fmt(d.mean_reward), "mean reward", "", status(d.status))}
       ${kpi(`${d.num_examples}×${d.rollouts_per_example}`, "examples × rollouts",
@@ -251,7 +339,7 @@ async function training() {
         "Training turns rewards into a LoRA adapter with GRPO — checkpointed, resumable.",
         "nanolab train configs/qwen3-0.6b-gsm8k.toml");
   return `${head("Training", "GRPO + LoRA, one synchronous loop",
-    "nanolab train <config.toml> --resume")}${tbl}`;
+    cli("nanolab train <config.toml> --resume"))}${tbl}`;
 }
 
 async function trainingDetail(id) {
@@ -267,7 +355,7 @@ async function trainingDetail(id) {
     : '<div class="empty">no checkpoints registered</div>';
   return `<a class="back" href="#/training">← Training</a>
     ${head(`Train run #${d.id}`, `${d.env ?? "?"} · ${d.model}`,
-      `nanolab training show ${d.id}`)}
+      cli(`nanolab training show ${d.id}`))}
     <div class="kpis">
       ${kpi(d.steps_completed, "steps", "", status(d.status))}
       ${kpi(rewards.length ? fmt(rewards[rewards.length - 1]) : "—", "last reward",
@@ -296,7 +384,52 @@ async function inference() {
         "Deployments serve a trained adapter as an OpenAI-compatible endpoint (vLLM, CUDA box) so the eval station can measure it with a base:adapter model string.",
         "nanolab deployments create <adapter-id>");
   return `${head("Inference", "serve adapters, close the loop",
-    "nanolab deployments create <adapter-id>")}${tbl}`;
+    cli("nanolab deployments create <adapter-id>"))}${tbl}`;
+}
+
+async function guide() {
+  return `${head("How to use nanolab", "the 2-minute tour — no terminal needed")}
+  <div class="guide">
+    <p>nanolab is a lab that <b>measures</b> AI models, <b>trains</b> them, and
+    <b>measures again</b> to prove they improved. Everything you see is stored in
+    one database file on your computer.</p>
+
+    <h2>The loop, in plain words</h2>
+    <div class="step"><b class="n">1</b><span><b>Environments</b> are exam papers —
+      sets of tasks with automatic graders. Install more with the
+      <i>＋ Install environment</i> button on the Environments page.</span></div>
+    <div class="step"><b class="n">2</b><span><b>Evaluations</b> make a model take an
+      exam and score every answer. Click <i>＋ New evaluation</i> on the Evaluations
+      page, pick an environment, click <b>Start</b>. The run appears in the table in
+      seconds; click it to read every question, answer, and score.</span></div>
+    <div class="step"><b class="n">3</b><span><b>Training</b> makes a model practice an
+      exam thousands of times, nudging it toward answers that score higher. This
+      needs a free GPU from Google —
+      <a href="https://colab.research.google.com/github/khwahish1509/RLPost/blob/main/notebooks/train_gsm8k_colab.ipynb"
+      target="_blank" style="color:var(--accent)">open the one-click notebook</a>,
+      press <b>Runtime → Run all</b>, and come back in ~4 hours. Results land here
+      automatically once the artifacts are copied in.</span></div>
+    <div class="step"><b class="n">4</b><span><b>Inference</b> serves a trained model
+      so it can be measured again — the before/after comparison is the whole
+      point.</span></div>
+
+    <h2>What you can do right now, with clicks only</h2>
+    <p>· Run <b>＋ New evaluation</b> (Evaluations page) — costs a few cents of API credit<br>
+       · <b>＋ Install environment</b> (Environments page) — free<br>
+       · Explore any past run — click rows, expand conversations, press
+       <code>⌘K</code> to jump anywhere<br>
+       · Watch a live run — pages refresh themselves every 5 seconds</p>
+
+    <h2>What the <code>$ …</code> chips are</h2>
+    <p class="muted">Every action also exists as a typed command (for people who use
+    terminals). The chips show that command and copy it on click. You never need
+    them — the buttons do the same thing.</p>
+
+    <h2>When something needs more than a click</h2>
+    <p class="muted">Ask Claude in the chat — "evaluate grok on gsm8k",
+    "install the wordle environment", "why did this run fail" — and it happens
+    in the same lab this app is showing you.</p>
+  </div>`;
 }
 
 /* ── command palette ───────────────────────────────────────────────── */
@@ -380,6 +513,7 @@ const routes = [
   [/^#\/training$/, training, "training"],
   [/^#\/training\/(\d+)$/, trainingDetail, "training"],
   [/^#\/inference$/, inference, "inference"],
+  [/^#\/guide$/, guide, "guide"],
 ];
 
 let current = null;
