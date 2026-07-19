@@ -108,6 +108,11 @@ async function post(path, body) {
   return data;
 }
 
+window.dismissJob = async (id) => {
+  try { await post("/actions/dismiss-job", { id }); render(); }
+  catch (err) { toast(err.message); }
+};
+
 const jobsStrip = async () => {
   try {
     const jobs = await api("/jobs");
@@ -121,6 +126,9 @@ const jobsStrip = async () => {
           : '<span class="st failed"><i></i></span>'}
         <span class="mono">${esc(j.label)}</span>
         ${j.error ? `<span class="err" title="${esc(j.error)}">${esc(j.error)}</span>` : ""}
+        ${j.status === "failed"
+          ? `<button class="jobx" onclick="dismissJob(${j.id})" title="dismiss">✕</button>`
+          : ""}
       </div>`).join("")}</div>`;
   } catch { return ""; }
 };

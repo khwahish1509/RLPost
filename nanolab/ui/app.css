@@ -235,7 +235,10 @@ svg text { font:9px var(--mono); fill:var(--dim); }
   border-radius:var(--r-sm); padding:.42rem .7rem; color:var(--dim); }
 .job.failed { border-color:rgba(248,113,113,.4); }
 .job .err { color:var(--bad); overflow:hidden; text-overflow:ellipsis;
-  white-space:nowrap; }
+  white-space:nowrap; flex:1; }
+.job .jobx { margin-left:auto; background:none; border:none; color:var(--faint);
+  cursor:pointer; font-size:12px; padding:0 .3rem; flex-shrink:0; }
+.job .jobx:hover { color:var(--text); }
 
 /* guide page */
 .guide { max-width:44rem; line-height:1.65; }

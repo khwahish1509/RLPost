@@ -443,6 +443,12 @@ def build_app():
     async def jobs(request):
         return JSONResponse(JOBS)
 
+    async def action_dismiss_job(request):
+        body = await request.json()
+        jid = body.get("id")
+        JOBS[:] = [j for j in JOBS if j["id"] != jid]
+        return JSONResponse({"dismissed": jid})
+
     async def action_eval(request):
         body = await request.json()
         env = (body.get("env") or "").strip()
@@ -541,6 +547,7 @@ def build_app():
             Route("/api/adapters", endpoint(_adapters)),
             Route("/api/defaults", endpoint(_defaults)),
             Route("/api/jobs", jobs),
+            Route("/api/actions/dismiss-job", action_dismiss_job, methods=["POST"]),
             Route("/api/actions/eval", action_eval, methods=["POST"]),
             Route("/api/actions/install", action_install, methods=["POST"]),
             Route("/api/actions/deploy", action_deploy, methods=["POST"]),
