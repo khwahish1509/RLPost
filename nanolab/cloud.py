@@ -83,6 +83,9 @@ def build_kernel_metadata(config_path: str | Path) -> dict:
         "kernel_type": "script",
         "is_private": "true",
         "enable_gpu": "true",
+        # T4 explicitly: Kaggle's default can assign a P100, whose Pascal
+        # architecture modern PyTorch wheels no longer ship kernels for
+        "machine_shape": "NvidiaTeslaT4",
         "enable_internet": "true",
         "dataset_sources": [],
         "competition_sources": [],
