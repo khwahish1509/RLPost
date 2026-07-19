@@ -62,6 +62,9 @@ def sh(cmd):
 sh("git clone --depth 1 {REPO_URL} nanolab")
 os.chdir("nanolab")
 sh(f"{{sys.executable}} -m pip install -q -e . peft prime")
+# Kaggle image ships torchao 0.10, which fresh peft rejects on import;
+# absent is fine, old is fatal — so remove it
+sh(f"{{sys.executable}} -m pip uninstall -q -y torchao")
 sh("prime env install primeintellect/gsm8k --with pip")
 sh(f"{{sys.executable}} -m nanolab.cli train {config_path} --resume")
 sh(f"{{sys.executable}} scripts/compare_adapter.py")
