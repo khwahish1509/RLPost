@@ -276,15 +276,37 @@ svg text { font:9px var(--mono); fill:var(--dim); }
   border-radius:var(--r-sm); padding:.8rem 1rem; overflow-x:auto; }
 .readme pre code { border:none; background:none; padding:0; }
 .readme ul { padding-left:1.3rem; }
-.filecard { border:1px solid var(--border); border-radius:var(--r-sm);
-  background:var(--surface); margin-bottom:.5rem; }
-.filecard summary { padding:.5rem .8rem; cursor:pointer; list-style:none;
-  font:12px var(--mono); color:var(--dim); }
-.filecard summary::-webkit-details-marker { display:none; }
-.filecard[open] summary { border-bottom:1px solid var(--border);
-  color:var(--text); }
-.filecard pre { margin:0; padding:.8rem 1rem; overflow-x:auto;
-  font:11.5px var(--mono); line-height:1.55; max-height:480px; }
+/* code browser */
+.codeview { display:grid; grid-template-columns:210px 1fr; gap:0;
+  border:1px solid var(--border); border-radius:var(--r); overflow:hidden;
+  background:var(--surface); }
+@media (max-width:900px) { .codeview { grid-template-columns:1fr; } }
+.filetree { border-right:1px solid var(--border); background:var(--surface2);
+  padding:.45rem; }
+.fitem { display:flex; justify-content:space-between; align-items:center;
+  gap:.5rem; padding:.38rem .6rem; border-radius:var(--r-sm); cursor:pointer;
+  font:12px var(--mono); color:var(--dim);
+  border-left:2px solid transparent; }
+.fitem:hover { background:var(--surface3); color:var(--text); }
+.fitem.active { background:var(--surface3); color:var(--text);
+  border-left-color:var(--accent); }
+.fitem .meta { font-size:10.5px; color:var(--faint); }
+.codehead { display:flex; align-items:center; gap:.6rem;
+  padding:.5rem .9rem; border-bottom:1px solid var(--border);
+  font:12px var(--mono); color:var(--text); }
+.codehead .meta { color:var(--faint); }
+.codepane { display:flex; overflow:auto; max-height:72vh; }
+.gutter { text-align:right; padding:.7rem .7rem .7rem 1rem;
+  color:var(--faint); user-select:none; white-space:pre;
+  font:11.5px/1.6 var(--mono); border-right:1px solid var(--border);
+  background:var(--surface2); position:sticky; left:0; }
+pre.src { margin:0; padding:.7rem 1rem; font:11.5px/1.6 var(--mono);
+  white-space:pre; flex:1; }
+.tok-kw { color:var(--entity); }
+.tok-str { color:#9ade7c; }
+.tok-com { color:var(--faint); font-style:italic; }
+.tok-dec { color:var(--accent); }
+.tok-num { color:var(--warn); }
 
 /* skeleton loading */
 .skel { border-radius:var(--r-sm);

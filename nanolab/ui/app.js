@@ -426,7 +426,40 @@ function md(src) {
 }
 
 let envTab = "overview";
+let envFile = 0;
 window.setEnvTab = (t) => { envTab = t; render(); };
+window.setEnvFile = (i) => { envFile = i; render(); };
+
+/* minimal python syntax highlighter — strings, comments, decorators,
+   keywords, numbers; multiline-safe (triple-quoted strings are one token) */
+function hlPy(src) {
+  const re = new RegExp(
+    [
+      '"""[\\s\\S]*?"""', "'''[\\s\\S]*?'''",
+      '"(?:\\\\.|[^"\\\\\\n])*"', "'(?:\\\\.|[^'\\\\\\n])*'",
+      "#[^\\n]*", "@\\w[\\w.]*",
+      "\\b\\d+(?:\\.\\d+)?\\b",
+      "\\b(?:def|class|return|if|elif|else|for|while|import|from|as|with|" +
+        "try|except|finally|raise|lambda|yield|async|await|pass|break|" +
+        "continue|not|and|or|in|is|None|True|False|self)\\b",
+    ].join("|"),
+    "g"
+  );
+  let out = "", last = 0, m;
+  while ((m = re.exec(src))) {
+    out += esc(src.slice(last, m.index));
+    const t = m[0];
+    const cls =
+      t[0] === "#" ? "tok-com"
+      : t[0] === '"' || t[0] === "'" ? "tok-str"
+      : t[0] === "@" ? "tok-dec"
+      : /^\d/.test(t) ? "tok-num"
+      : "tok-kw";
+    out += `<span class="${cls}">${esc(t)}</span>`;
+    last = re.lastIndex;
+  }
+  return out + esc(src.slice(last));
+}
 
 async function envDetail(id) {
   const d = await api(`/environments/${id}`);
@@ -454,10 +487,27 @@ async function envDetail(id) {
         ${(d.requires || []).map((r) => `<span class="dep">${esc(r)}</span>`).join("") || "—"}
       </div></div>`;
   } else if (envTab === "code") {
-    body = d.files.length
-      ? d.files.map((f, i) => `<details class="filecard"${i === 0 ? " open" : ""}>
-          <summary>${esc(f.name)}</summary><pre>${esc(f.content)}</pre></details>`).join("")
-      : '<div class="empty">source not found in the venv</div>';
+    if (!d.files.length) {
+      body = '<div class="empty">source not found in the venv</div>';
+    } else {
+      const i = Math.min(envFile, d.files.length - 1);
+      const f = d.files[i];
+      const lineCount = f.content.split("\n").length;
+      const tree = d.files
+        .map((x, j) => `<div class="fitem${j === i ? " active" : ""}"
+          onclick="setEnvFile(${j})"><span>${esc(x.name)}</span>
+          <span class="meta">${x.content.split("\n").length}L</span></div>`)
+        .join("");
+      const gutter = Array.from({ length: lineCount }, (_, k) => k + 1).join("\n");
+      body = `<div class="codeview">
+        <div class="filetree">${tree}</div>
+        <div>
+          <div class="codehead">${esc(f.name)}
+            <span class="meta">· ${lineCount} lines · ${(f.content.length / 1024).toFixed(1)} KB</span></div>
+          <div class="codepane"><div class="gutter">${gutter}</div>
+            <pre class="src">${hlPy(f.content)}</pre></div>
+        </div></div>`;
+    }
   } else {
     body = d.leaderboard.length
       ? table(
