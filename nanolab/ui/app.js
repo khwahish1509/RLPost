@@ -204,18 +204,92 @@ async function overview() {
     <div class="section-label"><b>02</b>recent training</div>${recentTrains}`;
 }
 
+let hubState = { open: false, search: "", sort: "stars", results: null, loading: false };
+
+window.toggleHub = () => {
+  hubState.open = !hubState.open;
+  if (hubState.open && hubState.results === null) loadHub();
+  else render();
+};
+
+window.hubSortChange = (v) => { hubState.sort = v; loadHub(); };
+
+window.hubSearchSubmit = (ev) => {
+  if (ev) ev.preventDefault();
+  const box = document.querySelector("#hub-search");
+  hubState.search = box ? box.value.trim() : "";
+  loadHub();
+};
+
+async function loadHub() {
+  hubState.loading = true;
+  render();
+  try {
+    const params = new URLSearchParams({ sort: hubState.sort });
+    if (hubState.search) params.set("search", hubState.search);
+    const data = await api(`/hub?${params}`);
+    hubState.results = data.environments || [];
+    hubState.error = data.error || null;
+  } catch (err) {
+    hubState.results = [];
+    hubState.error = err.message;
+  }
+  hubState.loading = false;
+  render();
+}
+
+window.installFromHub = async (btn, slug) => {
+  btn.disabled = true;
+  btn.textContent = "installing…";
+  try {
+    await post("/actions/install", { slug });
+    toast(`installing ${slug} — takes a minute`);
+    setTimeout(render, 700);
+  } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = "Install"; }
+};
+
+function hubPanel() {
+  if (!hubState.open) return "";
+  const searchBar = `<div class="panel" style="margin-bottom:.7rem">
+    <div class="row" style="align-items:center">
+      <form onsubmit="hubSearchSubmit(event)" style="flex:1;display:flex;gap:.5rem">
+        <input id="hub-search" placeholder="Search 1,388 hub environments — math, coding, games, tools…"
+          value="${esc(hubState.search)}" style="flex:1"></form>
+      <div class="field"><label>sort</label>
+        <select onchange="hubSortChange(this.value)">
+          <option value="stars"${hubState.sort === "stars" ? " selected" : ""}>most starred</option>
+          <option value="updated_at"${hubState.sort === "updated_at" ? " selected" : ""}>recently updated</option>
+          <option value="created_at"${hubState.sort === "created_at" ? " selected" : ""}>newest</option>
+        </select></div>
+      <button class="btn" onclick="hubSearchSubmit()">Search</button>
+    </div></div>`;
+  if (hubState.loading)
+    return searchBar + '<div class="skel" style="height:220px"></div>';
+  if (hubState.error)
+    return searchBar + `<div class="empty">${esc(hubState.error)}</div>`;
+  const results = hubState.results || [];
+  const grid = results.length
+    ? `<div class="cards">${results.map((e) => {
+        const tags = (e.tags || []).slice(0, 4)
+          .map((t) => `<span class="chip" style="font-size:10px">${esc(t)}</span>`).join(" ");
+        return `<div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:.5rem">
+            <div class="name">${esc(e.environment)}</div>
+            <div class="mono dim" style="font-size:11px">★ ${e.stars}</div></div>
+          <div class="meta" style="min-height:2.4em">${esc((e.description || "").slice(0, 110))}</div>
+          <div style="display:flex;gap:.3rem;flex-wrap:wrap;margin:.5rem 0">${tags}</div>
+          ${e.installed
+            ? '<span class="st done"><i></i>installed</span>'
+            : `<button class="btn ghost" onclick="installFromHub(this, '${esc(e.environment)}')">Install</button>`}
+        </div>`;
+      }).join("")}</div>`
+    : '<div class="empty">no matches on the hub</div>';
+  return searchBar + grid;
+}
+
 async function environments() {
   const [envs, strip] = await Promise.all([api("/environments"), jobsStrip()]);
-  const form = `<div class="panel" id="install-form" style="display:none">
-    <div class="row">
-      <div class="field"><label>environment name</label>
-        <input name="slug" placeholder="primeintellect/gsm8k" style="min-width:240px"></div>
-      <button class="btn" onclick="submitInstall(this)">Install</button>
-    </div>
-    <div class="hint">Anything from the public Environments Hub works —
-      browse it at <b>app.primeintellect.ai</b> and paste the name here.</div>
-  </div>`;
-  const cards = envs.length
+  const installedCards = envs.length
     ? `<div class="cards">${envs
         .map(
           (e) => `<div class="card click" style="cursor:pointer"
@@ -230,11 +304,14 @@ async function environments() {
               : '<span class="dim" style="font-size:12px">not evaluated yet</span>'}</div>
           </div>`).join("")}</div>`
     : empty("flask", "Install your first environment",
-        "Environments are tasks plus automatic graders, in the standard verifiers format.",
+        "Environments are tasks plus automatic graders. Browse the hub above to install one.",
         "nanolab env install primeintellect/gsm8k");
   return `${head("Environments", "tasks + automatic graders, hub-compatible",
-    `<button class="btn" onclick="togglePanel('install-form')">＋ Install environment</button>`)}
-    ${strip}${form}${cards}`;
+    `<button class="btn" onclick="toggleHub()">${hubState.open ? "✕ Close hub" : "⊞ Browse hub"}</button>`)}
+    ${strip}
+    ${hubPanel()}
+    <div class="section-label"><b>01</b>installed · ${envs.length}</div>
+    ${installedCards}`;
 }
 
 async function evals() {
@@ -752,5 +829,8 @@ async function render() {
 window.addEventListener("hashchange", render);
 render();
 setInterval(() => {
-  if (!document.hidden && !paletteOpen && current) render();
+  // don't yank the page out from under a form the user is filling in
+  const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(
+    document.activeElement?.tagName);
+  if (!document.hidden && !paletteOpen && !typing && current) render();
 }, 5000);

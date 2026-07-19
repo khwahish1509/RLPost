@@ -55,6 +55,33 @@ def _run_subprocess(cmd: list[str]) -> None:
         raise RuntimeError(" · ".join(tail) or f"exit code {proc.returncode}")
 
 
+def _hub(search: str = "", sort: str = "stars", page: int = 1) -> dict:
+    """Browse the Prime Hub via the prime CLI (real listing, live)."""
+    installed = set()
+    conn = db.connect()
+    try:
+        for row in conn.execute("SELECT slug FROM environments").fetchall():
+            installed.add(row["slug"])
+    finally:
+        conn.close()
+
+    cmd = ["prime", "env", "list", "--output", "json", "--sort", sort,
+           "--num", "24", "--page", str(page)]
+    if search:
+        cmd += ["--search", search]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    if proc.returncode != 0:
+        return {"error": "hub unreachable — is the prime CLI installed?", "environments": []}
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return {"error": "could not parse hub response", "environments": []}
+    envs = data.get("environments", [])
+    for e in envs:
+        e["installed"] = e.get("environment") in installed
+    return {"environments": envs, "page": page}
+
+
 def _defaults() -> dict:
     from . import config as config_mod
 
@@ -401,6 +428,18 @@ def build_app():
     async def index(request):
         return FileResponse(UI_DIR / "index.html")
 
+    async def hub(request):
+        q = request.query_params
+        try:
+            data = _hub(
+                search=q.get("search", ""),
+                sort=q.get("sort", "stars"),
+                page=int(q.get("page", 1)),
+            )
+        except Exception as exc:
+            data = {"error": str(exc)[:200], "environments": []}
+        return JSONResponse(data)
+
     async def jobs(request):
         return JSONResponse(JOBS)
 
@@ -492,6 +531,7 @@ def build_app():
         routes=[
             Route("/api/overview", endpoint(_overview)),
             Route("/api/environments", endpoint(_environments)),
+            Route("/api/hub", hub),
             Route("/api/environments/{env_id:str}", endpoint(_environment_detail)),
             Route("/api/evals", endpoint(_evals)),
             Route("/api/evals/{run_id:int}", endpoint(_eval_detail)),

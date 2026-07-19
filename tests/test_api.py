@@ -229,6 +229,50 @@ def test_adapters_endpoint_and_deploy_action(client, monkeypatch):
     assert called == {"adapter_id": 1, "local": True}
 
 
+def test_hub_browse_marks_installed(client, monkeypatch):
+    import json
+    import subprocess
+
+    from nanolab import api as api_mod
+
+    conn = db.connect()
+    db.register_environment(conn, "primeintellect/gsm8k", "gsm8k", "0.1.3")
+    conn.close()
+
+    fake = json.dumps({"environments": [
+        {"environment": "hud/hud-text-2048", "stars": 33, "tags": ["game"],
+         "description": "2048", "version": "0.1.0"},
+        {"environment": "primeintellect/gsm8k", "stars": 5, "tags": ["math"],
+         "description": "grade school math", "version": "0.1.3"},
+    ]})
+
+    class FakeProc:
+        returncode = 0
+        stdout = fake
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: FakeProc())
+    resp = client.get("/api/hub?search=math&sort=stars")
+    assert resp.status_code == 200
+    envs = resp.json()["environments"]
+    by_name = {e["environment"]: e for e in envs}
+    assert by_name["hud/hud-text-2048"]["installed"] is False
+    assert by_name["primeintellect/gsm8k"]["installed"] is True
+
+
+def test_hub_handles_cli_failure(client, monkeypatch):
+    import subprocess
+
+    class FailProc:
+        returncode = 1
+        stdout = ""
+        stderr = "boom"
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: FailProc())
+    data = client.get("/api/hub").json()
+    assert data["environments"] == []
+    assert "error" in data
+
+
 def test_ui_shell_served(client):
     for path in ("/", "/evals", "/anything"):
         response = client.get(path)
