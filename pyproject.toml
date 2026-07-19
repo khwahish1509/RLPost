@@ -10,6 +10,7 @@ dependencies = [
     "verifiers>=0.2.0",
     "httpx>=0.27",
     "numpy>=1.26",
+    "kaggle>=2.2.3",
 ]
 
 [project.scripts]

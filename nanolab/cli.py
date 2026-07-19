@@ -269,8 +269,24 @@ def eval_compare(
 def train(
     config: str = typer.Argument(help="Path to a training TOML (see configs/)"),
     resume: bool = typer.Option(False, "--resume", help="Resume from the last checkpoint"),
+    cloud: bool = typer.Option(
+        False, "--cloud", help="Run on Kaggle's free GPU via the API (no notebook)"
+    ),
 ) -> None:
-    """GRPO+LoRA training from a TOML config (synchronous loop, GPU box)."""
+    """GRPO+LoRA training: locally on a GPU box, or --cloud on Kaggle."""
+    if cloud:
+        from . import cloud as cloud_mod
+
+        try:
+            ref = cloud_mod.push(config)
+        except cloud_mod.CloudError as exc:
+            typer.secho(str(exc), fg="red", err=True)
+            raise typer.Exit(1) from exc
+        typer.secho(f"pushed to Kaggle: {ref}", fg="green")
+        typer.echo("  status: nanolab cloud status")
+        typer.echo("  fetch:  nanolab cloud pull   (when complete; ~hours)")
+        return
+
     from . import train as train_mod
 
     try:
@@ -279,6 +295,60 @@ def train(
         typer.secho(str(exc), fg="red", err=True)
         raise typer.Exit(1) from exc
     typer.secho(f"train run #{run_id} finished — adapters/ has the checkpoints", fg="green")
+
+
+cloud_app = typer.Typer(help="Cloud training runs on Kaggle.", no_args_is_help=True)
+app.add_typer(cloud_app, name="cloud")
+
+
+@cloud_app.command("list")
+def cloud_list() -> None:
+    """List cloud training runs."""
+    from . import cloud as cloud_mod
+
+    runs = cloud_mod.list_runs()
+    if not runs:
+        typer.echo("no cloud runs — start one with: nanolab train <config> --cloud")
+        return
+    for r in runs:
+        typer.echo(f"#{r['id']}  {r['kernel_ref']}  {r['config_path']}  [{r['status']}]  {r['created_at']}")
+
+
+@cloud_app.command("status")
+def cloud_status() -> None:
+    """Live status of the most recent cloud run."""
+    from . import cloud as cloud_mod
+
+    runs = cloud_mod.list_runs()
+    if not runs:
+        typer.echo("no cloud runs yet")
+        return
+    ref = runs[0]["kernel_ref"]
+    try:
+        s = cloud_mod.status(ref)
+    except cloud_mod.CloudError as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"{ref}: {s}")
+
+
+@cloud_app.command("pull")
+def cloud_pull() -> None:
+    """Download + merge the most recent cloud run's artifacts."""
+    from . import cloud as cloud_mod
+
+    runs = cloud_mod.list_runs()
+    if not runs:
+        typer.echo("no cloud runs yet")
+        return
+    ref = runs[0]["kernel_ref"]
+    try:
+        new_ids = cloud_mod.pull(ref)
+    except (cloud_mod.CloudError, Exception) as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(1) from exc
+    for run_id in new_ids:
+        typer.secho(f"merged as train run #{run_id} — nanolab training show {run_id}", fg="green")
 
 
 # ── training runs ────────────────────────────────────────────────────────────

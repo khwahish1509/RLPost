@@ -84,6 +84,15 @@ CREATE TABLE IF NOT EXISTS ledger (
     created_at        TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS cloud_runs (
+    id          INTEGER PRIMARY KEY,
+    kernel_ref  TEXT NOT NULL,       -- kaggle kernel ref, e.g. user/nanolab-train-x
+    config_path TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pushed',  -- pushed|running|complete|error|merged
+    created_at  TEXT NOT NULL,
+    pulled_at   TEXT
+);
+
 CREATE TABLE IF NOT EXISTS deployments (
     id          INTEGER PRIMARY KEY,
     adapter_id  INTEGER REFERENCES adapters(id),
