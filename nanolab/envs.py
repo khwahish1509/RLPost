@@ -59,16 +59,23 @@ def install(slug: str) -> InstalledEnv:
         capture_output=True,
         text=True,
     )
+    combined = f"{proc.stdout}\n{proc.stderr}"
+    # prime returns exit 0 even when a dependency build fails, so returncode
+    # alone can't be trusted — the importability check below is the real gate
     if proc.returncode != 0:
-        raise EnvInstallError(
-            f"`prime env install {slug}` failed:\n{proc.stdout}\n{proc.stderr}"
-        )
+        raise EnvInstallError(f"`prime env install {slug}` failed:\n{combined}")
     version = installed_version(env_id)
     if version is None and not _importable(env_id):
+        detail = ""
+        if "Installation failed" in combined or "Build failure" in combined or "build" in combined.lower():
+            detail = (
+                " Its build failed — usually a heavy or system-level dependency "
+                "that won't compile here (some hub environments need a specific "
+                "OS or extra libraries). This one can't run on this machine."
+            )
         raise EnvInstallError(
-            f"prime reported success but {env_id!r} is neither an installed "
-            "distribution nor importable. Check `prime env install` output:\n"
-            f"{proc.stdout}"
+            f"Couldn't install {slug!r}.{detail} "
+            "Try a different environment — most install cleanly."
         )
     conn = db.connect()
     try:
