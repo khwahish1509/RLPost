@@ -138,12 +138,12 @@ Goal: a user should complete the whole loop — install env → eval → train �
 
 ### Phase A — Cloud training via the Kaggle API (the centerpiece)
 
-- [ ] `nanolab/cloud.py`: Kaggle client wrapper (auth via `~/.kaggle/kaggle.json`; friendly setup errors). **Prerequisite: phone-verified Kaggle account + API token — user-side, one time.**
-- [ ] Kernel builder: generate a script kernel (GPU+internet enabled) that clones the repo at the current commit, installs, runs `nanolab train <config> --resume`, runs the held-out exam, and leaves adapters+db+exam-output as kernel output
-- [ ] `nanolab train --cloud <config>`: push the kernel, record the cloud run, return immediately
-- [ ] Poller (CLI `nanolab cloud pull` + background thread in the API server): watch kernel status; on completion download output, unzip, **auto-merge** db records + adapters (formalize the merge into `nanolab/artifacts.py` — currently ad-hoc)
-- [ ] UI: Training page gets **＋ New training run** (config dropdown from `configs/`); cloud runs show live status (queued / running on Kaggle · elapsed / merging / done) in the activity strip and Training table
-- [ ] Tests with the Kaggle client mocked; honest-limits note in the UI (logs arrive at completion — Kaggle API constraint)
+- [x] `nanolab/cloud.py`: Kaggle client wrapper (auth via `~/.kaggle/kaggle.json`; friendly setup errors) — **user completed phone-verify + token 2026-07-19**
+- [x] Kernel builder: script kernel (GPU+internet) that clones the repo, installs, `nanolab train <config> --resume`, runs the held-out exam, zips adapters+db as output
+- [x] `nanolab train --cloud <config>` pushes and records in the new `cloud_runs` table — **first live push 2026-07-19: `KernelWorkerStatus.RUNNING` on Kaggle within seconds**
+- [x] `nanolab cloud list/status/pull` — pull downloads output and auto-merges via `nanolab/artifacts.py` (formalized, tested round-trip)
+- [ ] UI: Training page **＋ New training run** button + cloud-run status in the activity strip (API server background poller)
+- [x] Tests with the Kaggle client mocked (74 total)
 
 Done when: user clicks ＋ New training run, closes the laptop, reopens later, and the finished curve + adapter + exam delta are sitting in the Training tab, having never touched a notebook.
 
