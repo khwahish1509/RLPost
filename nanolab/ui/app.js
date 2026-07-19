@@ -802,6 +802,7 @@ const routes = [
 
 let current = null;
 let lastHash = null;
+let lastHtml = null;
 
 async function render() {
   const hash = location.hash || "#/overview";
@@ -816,11 +817,17 @@ async function render() {
       try {
         const html = await current();
         const apply = () => {
+          // skip the DOM swap entirely when nothing changed — no flicker
+          if (!changed && html === lastHtml) return;
+          lastHtml = html;
+          // animate only on real navigation; silent refreshes update in place
           const openIdx = changed ? [] :
             [...document.querySelectorAll("details")].flatMap((d, i) => (d.open ? [i] : []));
-          page.innerHTML = `<div class="page">${html}</div>`;
+          const scrollY = changed ? 0 : window.scrollY;
+          page.innerHTML = `<div class="page${changed ? " anim" : ""}">${html}</div>`;
           const details = document.querySelectorAll("details");
           openIdx.forEach((i) => details[i] && (details[i].open = true));
+          if (!changed) window.scrollTo(0, scrollY);
         };
         if (changed && document.startViewTransition) document.startViewTransition(apply);
         else apply();
