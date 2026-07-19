@@ -371,21 +371,79 @@ async function trainingDetail(id) {
     <pre class="toml">${esc(d.config_toml || "")}</pre>`;
 }
 
+window.deployAdapter = async (btn, adapterId) => {
+  btn.disabled = true;
+  btn.textContent = "loading model…";
+  try {
+    await post("/actions/deploy", { adapter_id: adapterId });
+    toast("deploying — the model takes ~a minute to load");
+    setTimeout(render, 800);
+  } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = "Deploy"; }
+};
+
+window.stopDeployment = async (depId) => {
+  try {
+    await post("/actions/stop-deployment", { deployment_id: depId });
+    toast("stopped");
+    setTimeout(render, 400);
+  } catch (err) { toast(err.message); }
+};
+
 async function inference() {
-  const deps = await api("/deployments");
-  const tbl = deps.length
+  const [deps, adapters, strip] = await Promise.all([
+    api("/deployments"), api("/adapters"), jobsStrip(),
+  ]);
+  const live = deps.filter((d) => d.status === "running");
+
+  const adapterTbl = adapters.length
     ? table(
-        ["id", "model", "endpoint", "pid", "status"],
+        ["adapter", "model", "from run", "step", "status", ""],
+        adapters.map(
+          (a) => `<tr><td class="num rank">#${a.id}</td>
+          <td>${modelChip(`${a.base_model}:${a.id}`)}</td>
+          <td class="num">${a.train_run_id
+            ? `<a href="#/training/${a.train_run_id}" style="color:var(--dim)">run #${a.train_run_id}</a>` : "—"}</td>
+          <td class="num">${a.step ?? "—"}</td>
+          <td>${a.deployed
+            ? `<span class="st running"><i></i>serving</span>`
+            : a.exists ? '<span class="st"><i></i>on disk</span>'
+            : '<span class="st failed"><i></i>files missing</span>'}</td>
+          <td>${a.deployed
+            ? `<span class="mono dim">${esc(a.endpoint)}</span>`
+            : a.exists
+              ? `<button class="btn ghost" onclick="deployAdapter(this, ${a.id})">Deploy</button>`
+              : ""}</td></tr>`))
+    : empty("server", "No adapters yet",
+        "Adapters are created by training runs. Finish a run and its checkpoints appear here, ready to serve.",
+        "nanolab train configs/qwen3-0.6b-gsm8k.toml --resume");
+
+  const depTbl = deps.length
+    ? table(
+        ["id", "model", "endpoint", "status", ""],
         deps.map(
           (d) => `<tr><td class="num rank">#${d.id}</td>
           <td>${modelChip(`${d.base_model}:${d.adapter_id}`)}</td>
-          <td class="mono dim">${esc(d.endpoint)}</td><td class="num">${d.pid ?? "—"}</td>
-          <td>${status(d.status)}</td></tr>`))
-    : empty("server", "No deployments yet",
-        "Deployments serve a trained adapter as an OpenAI-compatible endpoint (vLLM, CUDA box) so the eval station can measure it with a base:adapter model string.",
-        "nanolab deployments create <adapter-id>");
-  return `${head("Inference", "serve adapters, close the loop",
-    cli("nanolab deployments create <adapter-id>"))}${tbl}`;
+          <td class="mono dim">${esc(d.endpoint)}</td>
+          <td>${status(d.status)}</td>
+          <td>${d.status === "running"
+            ? `<button class="btn ghost" onclick="stopDeployment(${d.id})">Stop</button>` : ""}</td></tr>`))
+    : '<div class="empty">no deployments yet — press Deploy on an adapter above</div>';
+
+  const hint = live.length
+    ? `<div class="hint" style="margin-bottom:1rem">Evaluate a served adapter:
+       ${cli(`nanolab eval run <env> -m ${live[0].base_model}:${live[0].adapter_id} -n 5`)}</div>`
+    : "";
+
+  return `${head("Inference", "serve adapters on this machine — no CUDA required",
+    cli("nanolab deployments create <adapter-id> --local"))}
+    ${strip}
+    <div class="kpis">
+      ${kpi(adapters.length, "adapters", "from training runs")}
+      ${kpi(live.length, "serving now", "local endpoints")}
+      ${kpi(deps.length, "deployments", "all time")}
+    </div>
+    <div class="section-label"><b>01</b>adapters</div>${adapterTbl}
+    <div class="section-label"><b>02</b>deployments</div>${hint}${depTbl}`;
 }
 
 /* minimal markdown renderer: headings, fenced code, inline code, bold,

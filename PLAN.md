@@ -99,9 +99,10 @@ Done when: the trained adapter beats its own pre-training baseline inside nanola
 - [x] `nanolab deployments create <adapter-id>` / `list` / `stop`
 - [x] `base:adapter` model strings resolved inside evaluate.py (adapter looked up, base sanity-checked, routed to the live local endpoint) — anchor re-passed after the change
 - [x] Alternative path documented: merge LoRA → GGUF → llama.cpp for laptop serving (docs/serving.md)
-- [ ] Live vLLM run on a CUDA box with a real adapter (needs Phase 3/4's Colab output)
+- [ ] Live vLLM run on a CUDA box with a real adapter (the fast path; local path already proven)
+- [x] **LOOP CLOSED — 2026-07-19, locally**: `nanolab deployments create 5 --local` served run-1's adapter on Apple-GPU via the policy server; `nanolab eval run gsm8k -m Qwen/Qwen3-0.6B:5` scored 1.000 (2/2) through the lab's own endpoint. All five stations, one laptop, no CUDA, $0.
 
-Done when (**LOOP CLOSED**): `nanolab eval run <env> -m Qwen3-0.6B:<adapter>` — the trained adapter, measured through our own endpoint, inside our own eval station.
+Done when (**LOOP CLOSED**): `nanolab eval run <env> -m Qwen3-0.6B:<adapter>` — the trained adapter, measured through our own endpoint, inside our own eval station. ✅
 
 ### Phase 6 — Ship v0.1.0 (2–4 evenings)
 
@@ -148,9 +149,9 @@ Done when: user clicks ＋ New training run, closes the laptop, reopens later, a
 
 ### Phase B — Local inference station (closes the loop with zero external deps)
 
-- [ ] `nanolab/serve_local.py`: load base+adapter via transformers on **MPS** (Apple GPU) / CPU, wrap in the existing PolicyServer → OpenAI-compatible endpoint on localhost; register in `deployments` (kind: local)
-- [ ] `nanolab deployments create <adapter-id> --local` + a **Deploy** button on training-run/adapter pages
-- [ ] `eval run -m base:adapter` against the local endpoint — **LOOP CLOSED on the user's own machine** (slow ≠ untrue)
+- [x] `nanolab/serve_local.py`: base+adapter on cuda→mps→cpu (auto-picked), served through the PolicyServer with request sampling passthrough; plain-load+move (device_map hangs on MPS — learned live)
+- [x] `nanolab deployments create <adapter-id> --local` + Deploy/Stop buttons and an adapters registry on the Inference page
+- [x] `eval run -m base:adapter` against the local endpoint — **LOOP CLOSED 2026-07-19** (eval #10, reward 1.000)
 - [ ] Instrument columns 3–4 via a scribe-stream eval with the Player pointed at the local endpoint
 - [ ] Playground page (v0.2 design doc): side-by-side base vs base:adapter chat on local serving
 

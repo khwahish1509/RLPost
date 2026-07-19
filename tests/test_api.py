@@ -156,6 +156,79 @@ def test_failed_job_carries_error(client, monkeypatch):
     assert "hub exploded" in jobs[0]["error"]
 
 
+def test_serve_command_local_vs_vllm():
+    from pathlib import Path
+
+    from nanolab.serve import _serve_command
+
+    local = _serve_command("Qwen/Qwen3-0.6B", Path("adapters/x"), "adapter-5", 8765, True)
+    assert local[1:3] == ["-m", "nanolab.serve_local"]
+    assert "--adapter" in local and "adapters/x" in local
+    vllm = _serve_command("Qwen/Qwen3-0.6B", Path("adapters/x"), "adapter-5", 8000, False)
+    assert vllm[0] == "vllm" and "--enable-lora" in vllm
+
+
+def test_policy_server_sampling_passthrough():
+    import httpx
+
+    from nanolab.policy_server import PolicyServer
+
+    seen = {}
+
+    def gen(messages, temperature=None, max_tokens=None):
+        seen.update(temperature=temperature, max_tokens=max_tokens)
+        return "ok"
+
+    with PolicyServer(gen, pass_sampling=True) as server:
+        resp = httpx.post(
+            f"{server.base_url}/chat/completions",
+            json={"messages": [{"role": "user", "content": "x"}],
+                  "temperature": 0.0, "max_tokens": 32},
+            timeout=10.0,
+        )
+    assert resp.status_code == 200
+    assert seen == {"temperature": 0.0, "max_tokens": 32}
+
+
+def test_pick_device_returns_valid_pair():
+    pytest.importorskip("torch")
+    from nanolab.serve_local import pick_device
+
+    device, dtype = pick_device()
+    assert device in ("cuda", "mps", "cpu")
+
+
+def test_adapters_endpoint_and_deploy_action(client, monkeypatch):
+    import time
+
+    from nanolab import api as api_mod
+    from nanolab import serve as serve_mod
+
+    conn = db.connect()
+    _seed(conn)
+    conn.close()
+
+    adapters = client.get("/api/adapters").json()
+    assert adapters[0]["base_model"] == "Qwen/Qwen3-0.6B"
+    assert adapters[0]["deployed"] is False
+
+    api_mod.JOBS.clear()
+    called = {}
+    monkeypatch.setattr(
+        serve_mod, "create_deployment",
+        lambda adapter_id, **kw: called.update(adapter_id=adapter_id, local=kw.get("local")),
+    )
+    resp = client.post("/api/actions/deploy", json={"adapter_id": 1})
+    assert resp.status_code == 200
+    for _ in range(100):
+        jobs = client.get("/api/jobs").json()
+        if jobs and jobs[0]["status"] != "running":
+            break
+        time.sleep(0.01)
+    assert jobs[0]["status"] == "done"
+    assert called == {"adapter_id": 1, "local": True}
+
+
 def test_ui_shell_served(client):
     for path in ("/", "/evals", "/anything"):
         response = client.get(path)

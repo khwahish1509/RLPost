@@ -353,6 +353,35 @@ def _deployments() -> list[dict]:
     return [vars(d) for d in serve_mod.list_deployments()]
 
 
+def _adapters() -> list[dict]:
+    from . import serve as serve_mod
+
+    live = {
+        d.adapter_id: d for d in serve_mod.list_deployments() if d.status == "running"
+    }
+    conn = db.connect()
+    try:
+        rows = _rows(
+            conn.execute(
+                """
+                SELECT a.*, t.status AS run_status, v.slug AS env
+                FROM adapters a
+                LEFT JOIN train_runs t ON t.id = a.train_run_id
+                LEFT JOIN environments v ON v.id = t.env_id
+                ORDER BY a.id DESC
+                """
+            )
+        )
+    finally:
+        conn.close()
+    for row in rows:
+        dep = live.get(row["id"])
+        row["deployed"] = bool(dep)
+        row["endpoint"] = dep.endpoint if dep else None
+        row["exists"] = Path(row["path"]).exists()
+    return rows
+
+
 def build_app():
     from starlette.applications import Starlette
     from starlette.responses import FileResponse, JSONResponse
@@ -415,6 +444,37 @@ def build_app():
 
         return JSONResponse({"job": _start_job("eval", f"eval · {env} · {model}", run_eval)})
 
+    async def action_deploy(request):
+        body = await request.json()
+        adapter_id = body.get("adapter_id")
+        if not adapter_id:
+            return JSONResponse({"error": "adapter_id required"}, status_code=400)
+
+        def run_deploy():
+            from .policy_server import _free_port
+            from . import serve as serve_mod
+
+            serve_mod.create_deployment(
+                int(adapter_id), port=_free_port(), ready_timeout=600, local=True
+            )
+
+        return JSONResponse(
+            {"job": _start_job("deploy", f"deploy · adapter #{adapter_id} · local", run_deploy)}
+        )
+
+    async def action_stop_deployment(request):
+        body = await request.json()
+        dep_id = body.get("deployment_id")
+        if not dep_id:
+            return JSONResponse({"error": "deployment_id required"}, status_code=400)
+        from . import serve as serve_mod
+
+        try:
+            dep = serve_mod.stop_deployment(int(dep_id))
+        except serve_mod.ServeError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        return JSONResponse({"stopped": dep.id})
+
     async def action_install(request):
         body = await request.json()
         slug = (body.get("slug") or "").strip()
@@ -438,10 +498,13 @@ def build_app():
             Route("/api/training", endpoint(_training)),
             Route("/api/training/{run_id:int}", endpoint(_training_detail)),
             Route("/api/deployments", endpoint(_deployments)),
+            Route("/api/adapters", endpoint(_adapters)),
             Route("/api/defaults", endpoint(_defaults)),
             Route("/api/jobs", jobs),
             Route("/api/actions/eval", action_eval, methods=["POST"]),
             Route("/api/actions/install", action_install, methods=["POST"]),
+            Route("/api/actions/deploy", action_deploy, methods=["POST"]),
+            Route("/api/actions/stop-deployment", action_stop_deployment, methods=["POST"]),
             Mount("/assets", StaticFiles(directory=UI_DIR), name="assets"),
             Route("/", index),
             Route("/{path:path}", index),  # hash-router fallback

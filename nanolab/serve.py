@@ -122,16 +122,39 @@ def resolve_model(model: str) -> tuple[str, str, str] | None:
         conn.close()
 
 
+def _serve_command(
+    base_model: str, adapter_path: Path, served_name: str, port: int, local: bool
+) -> list[str]:
+    if local:
+        import sys
+
+        return [
+            sys.executable, "-m", "nanolab.serve_local",
+            "--base", base_model,
+            "--adapter", str(adapter_path),
+            "--served-name", served_name,
+            "--port", str(port),
+        ]
+    return [
+        "vllm", "serve", base_model,
+        "--enable-lora",
+        "--lora-modules", f"{served_name}={adapter_path}",
+        "--port", str(port),
+    ]
+
+
 def create_deployment(
     adapter_id: int,
     port: int = 8000,
     ready_timeout: float = 900.0,
+    local: bool = False,
 ) -> Deployment:
-    """Launch vLLM serving an adapter's base model with the LoRA attached."""
-    if shutil.which("vllm") is None:
+    """Serve an adapter: vLLM on a CUDA box, or this machine's own GPU/CPU
+    via the local worker (--local; no CUDA required, slower)."""
+    if not local and shutil.which("vllm") is None:
         raise ServeError(
             "vLLM is not installed (it needs a CUDA box): pip install vllm\n"
-            "Laptop path: docs/serving.md (merge LoRA → GGUF → llama.cpp)."
+            "No CUDA? Use --local to serve on this machine's GPU/CPU."
         )
     conn = db.connect()
     try:
@@ -148,12 +171,9 @@ def create_deployment(
         log_dir = Path("results") / "deployments"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / f"deployment-a{adapter_id}-p{port}.log"
-        cmd = [
-            "vllm", "serve", adapter["base_model"],
-            "--enable-lora",
-            "--lora-modules", f"{served_name}={adapter_path}",
-            "--port", str(port),
-        ]
+        cmd = _serve_command(
+            adapter["base_model"], adapter_path, served_name, port, local
+        )
         with open(log_file, "ab") as log:
             proc = subprocess.Popen(
                 cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True

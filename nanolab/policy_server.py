@@ -33,10 +33,17 @@ def _free_port() -> int:
 
 
 class PolicyServer:
-    def __init__(self, generate_fn: Callable[[Messages], str], model_name: str = "policy"):
+    def __init__(
+        self,
+        generate_fn: Callable[[Messages], str],
+        model_name: str = "policy",
+        port: int | None = None,
+        pass_sampling: bool = False,
+    ):
         self.generate_fn = generate_fn
         self.model_name = model_name
-        self.port = _free_port()
+        self.port = port or _free_port()
+        self.pass_sampling = pass_sampling
         self._lock = threading.Lock()
         self._server = None
         self._thread: threading.Thread | None = None
@@ -60,6 +67,12 @@ class PolicyServer:
 
             def run():
                 with self._lock:
+                    if self.pass_sampling:
+                        return self.generate_fn(
+                            messages,
+                            temperature=body.get("temperature"),
+                            max_tokens=body.get("max_tokens"),
+                        )
                     return self.generate_fn(messages)
 
             text = await anyio.to_thread.run_sync(run)

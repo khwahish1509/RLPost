@@ -372,12 +372,15 @@ def training_show(run_id: int = typer.Argument(help="Training run id")) -> None:
 def deployments_create(
     adapter_id: int = typer.Argument(help="Adapter id from the adapters table"),
     port: int = typer.Option(8000, "--port", "-p"),
+    local: bool = typer.Option(
+        False, "--local", help="Serve on this machine's GPU/CPU (no CUDA needed)"
+    ),
 ) -> None:
-    """Serve an adapter through vLLM --enable-lora (CUDA box)."""
+    """Serve an adapter: vLLM (CUDA box) or --local on this machine."""
     from . import serve
 
     try:
-        dep = serve.create_deployment(adapter_id, port=port)
+        dep = serve.create_deployment(adapter_id, port=port, local=local)
     except serve.ServeError as exc:
         typer.secho(str(exc), fg="red", err=True)
         raise typer.Exit(1) from exc
