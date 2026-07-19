@@ -112,7 +112,7 @@ def push(config_path: str | Path) -> str:
 
 def status(ref: str) -> str:
     out = _kaggle(["kernels", "status", ref])
-    match = re.search(r'status "?(\w+)"?', out)
+    match = re.search(r'status "(?:\w+\.)?(\w+)"', out)
     return (match.group(1) if match else out.strip()).lower()
 
 

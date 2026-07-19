@@ -46,9 +46,9 @@ def test_push_records_cloud_run(tmp_db, monkeypatch):
 def test_status_parsing(monkeypatch):
     monkeypatch.setattr(
         cloud, "_kaggle",
-        lambda args: 'someone/nanolab-train-x has status "KernelWorkerStarted"',
+        lambda args: 'someone/nanolab-train-x has status "KernelWorkerStatus.RUNNING"',
     )
-    assert cloud.status("someone/nanolab-train-x") == "kernelworkerstarted"
+    assert cloud.status("someone/nanolab-train-x") == "running"
 
 
 def test_merge_artifacts_roundtrip(tmp_db):
