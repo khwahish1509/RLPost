@@ -131,6 +131,35 @@ Done when: a small model, trained in our own lab, measurably out-teaches its unt
 - [ ] Columns 3–4: rerun the stream eval with the Player served as `base:adapter` (needs the first score-moving adapter + a serving session)
 - [ ] The north-star experiment: does a *trained* Scribe's lift transfer to less-similar tasks better than a prompted one's? (After S2.)
 
+## THE MOLDING (v0.2 core): match the hosted-product experience, $0, single-user
+
+Goal: a user should complete the whole loop — install env → eval → train → deploy → re-eval — **without leaving nanolab's UI**. Training rides Kaggle's free T4 via their API; serving rides the user's own machine.
+
+### Phase A — Cloud training via the Kaggle API (the centerpiece)
+
+- [ ] `nanolab/cloud.py`: Kaggle client wrapper (auth via `~/.kaggle/kaggle.json`; friendly setup errors). **Prerequisite: phone-verified Kaggle account + API token — user-side, one time.**
+- [ ] Kernel builder: generate a script kernel (GPU+internet enabled) that clones the repo at the current commit, installs, runs `nanolab train <config> --resume`, runs the held-out exam, and leaves adapters+db+exam-output as kernel output
+- [ ] `nanolab train --cloud <config>`: push the kernel, record the cloud run, return immediately
+- [ ] Poller (CLI `nanolab cloud pull` + background thread in the API server): watch kernel status; on completion download output, unzip, **auto-merge** db records + adapters (formalize the merge into `nanolab/artifacts.py` — currently ad-hoc)
+- [ ] UI: Training page gets **＋ New training run** (config dropdown from `configs/`); cloud runs show live status (queued / running on Kaggle · elapsed / merging / done) in the activity strip and Training table
+- [ ] Tests with the Kaggle client mocked; honest-limits note in the UI (logs arrive at completion — Kaggle API constraint)
+
+Done when: user clicks ＋ New training run, closes the laptop, reopens later, and the finished curve + adapter + exam delta are sitting in the Training tab, having never touched a notebook.
+
+### Phase B — Local inference station (closes the loop with zero external deps)
+
+- [ ] `nanolab/serve_local.py`: load base+adapter via transformers on **MPS** (Apple GPU) / CPU, wrap in the existing PolicyServer → OpenAI-compatible endpoint on localhost; register in `deployments` (kind: local)
+- [ ] `nanolab deployments create <adapter-id> --local` + a **Deploy** button on training-run/adapter pages
+- [ ] `eval run -m base:adapter` against the local endpoint — **LOOP CLOSED on the user's own machine** (slow ≠ untrue)
+- [ ] Instrument columns 3–4 via a scribe-stream eval with the Player pointed at the local endpoint
+- [ ] Playground page (v0.2 design doc): side-by-side base vs base:adapter chat on local serving
+
+Done when: `nanolab instrument <run> <run>` prints all four columns produced entirely on one laptop.
+
+### Phase C — Hub browsing polish (small)
+
+- [ ] Surface hub environment discovery in the Environments page if the prime CLI exposes a listing/search; else keep install-by-name + link out
+
 ## AFTER v0.1 (the v0.2 flagship)
 
 - [ ] **The instrument panel**: a local single-tenant web UI over the same SQLite file — design direction, tokens, IA, and stack are settled in `docs/frontend-direction.md`. v0.1 already ships the design language as the static lab notebook (`nanolab report`). Prerequisite: a thin read-only HTTP API over the db.
