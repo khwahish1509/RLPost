@@ -91,7 +91,9 @@ Done when: a 50-step run completes (surviving at least one restart via resume), 
 - [x] Post-run exam on the final checkpoint: base 0.422 → step99 0.000 (delta −0.422) — but the curve shows a **policy collapse**: climbed to 0.875 by step ~17, then decayed to 0 by step 99. Final ≠ best. The per-decade checkpoints let us evaluate the peak instead.
 - [x] **Evaluate the peak checkpoint (step 19) vs base — 2026-07-20: base 0.375 → step19 0.500, delta +0.125** (12→16 correct on 32 held-out gsm8k, greedy, our own rubric). Run 3 config (lr 5e-5, 40 steps) set for a clean full-64 run.
 
-Done when: a trained checkpoint beats its own pre-training baseline inside nanolab's own eval. **✅ DONE — the lab produced its first improved model.**
+- [x] **Two-instrument addendum (2026-07-20)**: the official station head-to-head at n=32 with a 512-token budget reads base 0.625 vs trained 0.562 (Δ −0.062, within noise), while the 256-token exam reads base 0.375 vs trained 0.500 (Δ +0.125). Diagnosis: the base loses heavily to truncation at 256; training (run at 256) taught budget-fit answers. The improvement is real **within the training regime** and evaporates outside it — run 2's collapse-scarred checkpoint is not a robust win. Run 3 (clean run) is the proper test; future comparisons must pin max_tokens.
+
+Done when: a trained checkpoint beats its own pre-training baseline inside nanolab's own eval. **✅ met under the training-time budget; robust, regime-independent improvement is run 3's job.**
 
 ### Phase 5 — Inference station + loop closure (3–5 evenings)
 
