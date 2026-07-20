@@ -3,10 +3,13 @@
 # v0.1 trainer: single-turn envs only, exactly one [[env]] block.
 
 model = "Qwen/Qwen3-0.6B"
-max_steps = 100
+max_steps = 40
 batch_size = 8
 rollouts_per_example = 8
-learning_rate = 1e-4  # run-1 post-mortem: 1e-5 x 50 steps moved weights only ~5e-4 — too small to flip any greedy outcome
+# run 1: lr 1e-5 x 50 too weak (delta 0). run 2: lr 1e-4 x 100 climbed to
+# 0.875 by step ~17 then COLLAPSED to 0 by step 99 (policy instability).
+# run 3: lr 5e-5 (between) and stop at 40 steps, before the collapse zone.
+learning_rate = 5e-5
 checkpoint_every = 10
 seed = 0
 max_new_tokens = 256

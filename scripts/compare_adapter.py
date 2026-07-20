@@ -10,10 +10,11 @@ whatever delta appears is the training, nothing else.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
-N_QUESTIONS = 64
+N_QUESTIONS = int(os.environ.get("EXAM_N", "64"))
 BATCH = 16
 MODEL = "Qwen/Qwen3-0.6B"
 ENV = "gsm8k"

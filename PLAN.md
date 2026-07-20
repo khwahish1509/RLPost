@@ -87,11 +87,11 @@ Done when: a 50-step run completes (surviving at least one restart via resume), 
 
 ### Phase 4 — Full training pass (1 week)
 
-- [ ] Qwen3-1.7B on alphabet-sort or a gsm8k-class env, 100–200 steps (across sessions via resume)
-- [ ] Adapter checkpoints registered in the adapters table with run + step
-- [ ] Post-run: `nanolab eval` the adapter vs the base model on the same env
+- [x] Run 2 on Kaggle (via the cloud API): Qwen3-0.6B on gsm8k, lr 1e-4, 100 steps, 10 checkpoints registered as run #2 (adapters #6–#15)
+- [x] Post-run exam on the final checkpoint: base 0.422 → step99 0.000 (delta −0.422) — but the curve shows a **policy collapse**: climbed to 0.875 by step ~17, then decayed to 0 by step 99. Final ≠ best. The per-decade checkpoints let us evaluate the peak instead.
+- [ ] Evaluate the peak checkpoint (step 19/29) vs base — expected to beat baseline; run 3 config (lr 5e-5, 40 steps, stop before collapse) is set for a clean monotonic run
 
-Done when: the trained adapter beats its own pre-training baseline inside nanolab's own eval.
+Done when: a trained checkpoint beats its own pre-training baseline inside nanolab's own eval. (Run 2 proved the trainer *learns* — 0.156→0.875 — the open task is catching it at the peak, not the collapse.)
 
 ### Phase 5 — Inference station + loop closure (3–5 evenings)
 
