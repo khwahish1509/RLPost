@@ -404,8 +404,42 @@ async function evalDetail(id) {
     ${rollouts || '<div class="empty">no samples stored</div>'}`;
 }
 
+window.submitTrainCloud = async (btn) => {
+  const sel = btn.closest(".panel").querySelector("[name=config]");
+  btn.disabled = true;
+  try {
+    await post("/actions/train-cloud", { config: sel.value });
+    toast("pushed to Kaggle — training runs unattended (~hours)");
+    setTimeout(render, 700);
+  } catch (err) { toast(err.message); btn.disabled = false; }
+};
+
 async function training() {
-  const runs = await api("/training");
+  const [runs, cloudRuns, configs, strip] = await Promise.all([
+    api("/training"), api("/cloud"), api("/configs"), jobsStrip(),
+  ]);
+
+  const form = `<div class="panel" id="train-form" style="display:none">
+    <div class="row">
+      <div class="field"><label>training config</label>
+        <select name="config">${configs
+          .map((c) => `<option value="${esc(c.path)}">${esc(c.name)} — ${esc(c.env)},
+            ${c.max_steps} steps, lr ${c.learning_rate}</option>`).join("")}</select></div>
+      <button class="btn" onclick="submitTrainCloud(this)">Launch on Kaggle</button>
+    </div>
+    <div class="hint">Runs on Kaggle's free T4 via the API — no notebook, no tab.
+      Finished runs merge back automatically; the curve appears below when done.</div>
+  </div>`;
+
+  const active = cloudRuns.filter((c) => ["pushed", "running"].includes(c.status));
+  const cloudStrip = active.length
+    ? `<div class="activity">${active.map((c) => {
+        const mins = Math.max(0, Math.round((Date.now() - Date.parse(c.created_at)) / 60000));
+        return `<div class="job"><span class="st running"><i></i></span>
+          <span class="mono">${esc(c.config_path.split("/").pop())} · ${
+            c.status === "running" ? "training on Kaggle" : "queued on Kaggle"} · ${mins}m</span></div>`;
+      }).join("")}</div>`
+    : "";
   const tbl = runs.length
     ? table(
         ["run", "env", "model", "status", "steps", "reward curve", "first → last", ""],
@@ -742,6 +776,61 @@ async function playground() {
     </form>`;
 }
 
+/* ── console: run nanolab commands from the browser ─────────────────── */
+
+window.consoleRun = async (ev) => {
+  if (ev) ev.preventDefault();
+  const box = document.querySelector("#console-input");
+  const raw = box ? box.value.trim() : "";
+  if (!raw) return;
+  box.value = "";
+  try {
+    await post("/actions/cli", { command: raw });
+    toast("running…");
+    setTimeout(render, 500);
+  } catch (err) { toast(err.message); }
+};
+
+window.consoleFill = (cmd) => {
+  const box = document.querySelector("#console-input");
+  if (box) { box.value = cmd; box.focus(); }
+};
+
+async function consolePage() {
+  const jobs = (await api("/jobs")).filter((j) => j.kind === "cli");
+  const suggestions = [
+    "eval list", "env list", "training list", "deployments list",
+    "eval show 10", "training show 2", "cloud status", "version",
+  ];
+  const history = jobs.length
+    ? jobs.map((j) => `<div class="tablewrap" style="margin-bottom:.6rem">
+        <div class="codehead">${esc(j.label)}
+          <span class="meta" style="margin-left:auto">${
+            j.status === "running" ? '<span class="st running"><i></i>running</span>'
+            : j.status === "failed" ? '<span class="st failed"><i></i>failed</span>'
+            : '<span class="st done"><i></i>done</span>'}</span></div>
+        ${j.output ? `<pre class="src" style="max-height:340px;overflow:auto">${esc(j.output)}</pre>`
+          : j.error ? `<pre class="src" style="color:var(--bad)">${esc(j.error)}</pre>`
+          : '<pre class="src dim">…</pre>'}
+      </div>`).join("")
+    : `<div class="empty"><div class="headline">A terminal, without the Terminal</div>
+       <div>Type any nanolab command below — or click a suggestion to try one.</div></div>`;
+  return `${head("Console", "run any nanolab command right here")}
+    <form onsubmit="consoleRun(event)" class="panel"
+      style="display:flex;gap:.6rem;align-items:center">
+      <span class="mono" style="color:var(--accent)">$ nanolab</span>
+      <input id="console-input" placeholder="eval list" autocomplete="off"
+        style="flex:1;background:var(--surface2);border:1px solid var(--border);
+        border-radius:6px;color:var(--text);font:12.5px var(--mono);padding:.5rem .7rem">
+      <button class="btn">Run</button>
+    </form>
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:1.1rem">
+      ${suggestions.map((s) =>
+        `<button class="cli" onclick="consoleFill('${s}')"><b>$</b> ${s}</button>`).join("")}
+    </div>
+    ${history}`;
+}
+
 async function guide() {
   return `${head("How to use nanolab", "the 2-minute tour — no terminal needed")}
   <div class="guide">
@@ -870,6 +959,7 @@ const routes = [
   [/^#\/training\/(\d+)$/, trainingDetail, "training"],
   [/^#\/inference$/, inference, "inference"],
   [/^#\/playground$/, playground, "playground"],
+  [/^#\/console$/, consolePage, "console"],
   [/^#\/guide$/, guide, "guide"],
 ];
 

@@ -105,6 +105,14 @@ def push(config_path: str | Path) -> str:
     ref = meta["id"]
     conn = db.connect()
     try:
+        # a re-push of the same kernel replaces the previous version on
+        # Kaggle — retire any still-open rows for this ref so the poller
+        # only tracks the newest push
+        conn.execute(
+            "UPDATE cloud_runs SET status='superseded' WHERE kernel_ref=? AND"
+            " status IN ('pushed','running')",
+            (ref,),
+        )
         conn.execute(
             "INSERT INTO cloud_runs (kernel_ref, config_path, status, created_at)"
             " VALUES (?,?,?,?)",
@@ -114,6 +122,63 @@ def push(config_path: str | Path) -> str:
     finally:
         conn.close()
     return ref
+
+
+def _set_status(ref: str, new_status: str) -> None:
+    conn = db.connect()
+    try:
+        conn.execute(
+            "UPDATE cloud_runs SET status=? WHERE id = (SELECT MAX(id) FROM"
+            " cloud_runs WHERE kernel_ref=?)",
+            (new_status, ref),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def poll_once() -> list[str]:
+    """Advance every open cloud run one step; auto-merge completed ones.
+
+    Called by the API server's background poller and usable from the CLI.
+    Returns human-readable events (empty = nothing changed).
+    """
+    events: list[str] = []
+    conn = db.connect()
+    try:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM cloud_runs WHERE status IN ('pushed','running')"
+            " ORDER BY id DESC"
+        ).fetchall()]
+    finally:
+        conn.close()
+    seen: set[str] = set()
+    for row in rows:
+        ref = row["kernel_ref"]
+        if ref in seen:
+            continue
+        seen.add(ref)
+        try:
+            s = status(ref)
+        except CloudError:
+            continue
+        if s == "running" and row["status"] != "running":
+            _set_status(ref, "running")
+            events.append(f"training running on Kaggle: {ref}")
+        elif s == "complete":
+            try:
+                new_ids = pull(ref)
+                events.append(
+                    f"cloud training complete — merged as train run(s) "
+                    f"{', '.join(f'#{i}' for i in new_ids)}"
+                )
+            except Exception as exc:
+                _set_status(ref, "error")
+                events.append(f"cloud run finished but merge failed: {exc}")
+        elif s in ("error", "cancelacknowledged"):
+            _set_status(ref, "error")
+            events.append(f"cloud training failed on Kaggle: {ref}")
+    return events
 
 
 def status(ref: str) -> str:

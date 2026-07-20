@@ -90,6 +90,34 @@ def _hub(search: str = "", sort: str = "stars", page: int = 1) -> dict:
     return {"environments": envs, "page": page}
 
 
+def _configs() -> list[dict]:
+    """Training configs available to launch, with a parsed summary."""
+    import tomllib
+
+    out = []
+    for path in sorted(Path("configs").glob("*.toml")):
+        try:
+            data = tomllib.loads(path.read_text())
+            envs_ = data.get("env", [{}])
+            out.append({
+                "path": str(path),
+                "name": path.stem,
+                "model": data.get("model", "?"),
+                "env": envs_[0].get("id", "?") if envs_ else "?",
+                "max_steps": data.get("max_steps"),
+                "learning_rate": data.get("learning_rate"),
+            })
+        except Exception:
+            continue
+    return out
+
+
+def _cloud_runs() -> list[dict]:
+    from . import cloud as cloud_mod
+
+    return cloud_mod.list_runs()
+
+
 def _defaults() -> dict:
     from . import config as config_mod
 
@@ -463,6 +491,108 @@ def build_app():
     async def version(request):
         return JSONResponse({"ui": ui_version()})
 
+    async def action_cli(request):
+        """Run a nanolab CLI command from the UI console. Never a shell —
+        args are split and passed to our own CLI module only."""
+        import shlex
+
+        body = await request.json()
+        raw = (body.get("command") or "").strip()
+        if not raw:
+            return JSONResponse({"error": "type a command"}, status_code=400)
+        try:
+            args = shlex.split(raw)
+        except ValueError as exc:
+            return JSONResponse({"error": f"can't parse: {exc}"}, status_code=400)
+        # tolerate people typing the full incantation
+        while args and args[0] in ("uv", "run", "nanolab", "$"):
+            args.pop(0)
+        if not args:
+            return JSONResponse({"error": "type a command, e.g. `eval list`"}, status_code=400)
+        if args[0] == "ui":
+            return JSONResponse(
+                {"error": "`ui` starts this very server — it can't run inside itself"},
+                status_code=400,
+            )
+
+        cmd = [sys.executable, "-m", "nanolab.cli", *args]
+
+        def run_cli(job=None):
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+            out = ((proc.stdout or "") + (proc.stderr or "")).strip()
+            run_cli.output = out[-8000:] or "(no output)"
+            if proc.returncode != 0:
+                raise RuntimeError(run_cli.output.splitlines()[-1] if run_cli.output else "failed")
+
+        job = _start_job("cli", f"$ nanolab {' '.join(args)}", run_cli)
+        job["command"] = raw
+
+        # attach output to the job once the thread finishes
+        def attach():
+            import time as _t
+
+            for _ in range(3600):
+                if job["status"] != "running":
+                    job["output"] = getattr(run_cli, "output", None)
+                    return
+                _t.sleep(0.5)
+
+        threading.Thread(target=attach, daemon=True).start()
+        return JSONResponse({"job": job})
+
+    # read-only nanolab commands the Console page may run
+    CONSOLE_ALLOWED = {
+        ("env", "list"), ("eval", "list"), ("eval", "show"), ("eval", "compare"),
+        ("training", "list"), ("training", "show"), ("deployments", "list"),
+        ("cloud", "list"), ("cloud", "status"), ("instrument",), ("version",),
+    }
+
+    async def action_console(request):
+        body = await request.json()
+        raw = (body.get("cmd") or "").strip()
+        parts = raw.split()
+        if parts[:1] == ["nanolab"]:
+            parts = parts[1:]
+        allowed = any(
+            tuple(parts[: len(sig)]) == sig for sig in CONSOLE_ALLOWED
+        )
+        if not parts or not allowed:
+            cmds = sorted({" ".join(s) for s in CONSOLE_ALLOWED})
+            return JSONResponse(
+                {"output": "console runs read-only nanolab commands:\n  "
+                 + "\n  ".join(cmds)},
+            )
+        proc = subprocess.run(
+            [sys.executable, "-m", "nanolab.cli", *parts],
+            capture_output=True, text=True, timeout=120,
+        )
+        return JSONResponse(
+            {"output": (proc.stdout + proc.stderr).strip() or "(no output)"}
+        )
+
+    async def action_train_cloud(request):
+        body = await request.json()
+        config = (body.get("config") or "").strip()
+        target = Path(config)
+        if (
+            not config
+            or target.suffix != ".toml"
+            or not target.is_file()
+            or Path("configs").resolve() not in target.resolve().parents
+        ):
+            return JSONResponse(
+                {"error": "pick a training config from configs/"}, status_code=400
+            )
+
+        def run_push():
+            from . import cloud as cloud_mod
+
+            cloud_mod.push(config)
+
+        return JSONResponse(
+            {"job": _start_job("train", f"training → Kaggle · {target.stem}", run_push)}
+        )
+
     async def action_chat(request):
         """Proxy a chat turn to a running local deployment (avoids CORS)."""
         import httpx
@@ -596,8 +726,13 @@ def build_app():
             Route("/api/deployments", endpoint(_deployments)),
             Route("/api/adapters", endpoint(_adapters)),
             Route("/api/defaults", endpoint(_defaults)),
+            Route("/api/configs", endpoint(_configs)),
+            Route("/api/cloud", endpoint(_cloud_runs)),
+            Route("/api/actions/train-cloud", action_train_cloud, methods=["POST"]),
+            Route("/api/actions/console", action_console, methods=["POST"]),
             Route("/api/jobs", jobs),
             Route("/api/version", version),
+            Route("/api/actions/cli", action_cli, methods=["POST"]),
             Route("/api/actions/chat", action_chat, methods=["POST"]),
             Route("/api/actions/dismiss-job", action_dismiss_job, methods=["POST"]),
             Route("/api/actions/eval", action_eval, methods=["POST"]),
@@ -611,6 +746,26 @@ def build_app():
     )
 
 
+def _cloud_poller(interval: float = 120.0) -> None:
+    """Background: advance cloud runs; auto-merge finished ones into the lab."""
+    import time
+
+    while True:
+        try:
+            from . import cloud as cloud_mod
+
+            for event in cloud_mod.poll_once():
+                JOBS.insert(0, {
+                    "id": next(_job_ids), "kind": "cloud", "label": event,
+                    "status": "failed" if "failed" in event else "done",
+                    "error": None, "started_at": db.utcnow(),
+                })
+                del JOBS[20:]
+        except Exception:
+            pass  # no kaggle token / offline — poller stays quiet
+        time.sleep(interval)
+
+
 def serve_ui(port: int = 3456, open_browser: bool = True) -> None:
     import threading
     import webbrowser
@@ -619,6 +774,7 @@ def serve_ui(port: int = 3456, open_browser: bool = True) -> None:
 
     url = f"http://127.0.0.1:{port}"
     print(f"nanolab ui → {url}  (Ctrl+C to stop)")
+    threading.Thread(target=_cloud_poller, daemon=True).start()
     if open_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     uvicorn.run(build_app(), host="127.0.0.1", port=port, log_level="warning")

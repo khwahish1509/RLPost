@@ -273,6 +273,29 @@ def test_hub_handles_cli_failure(client, monkeypatch):
     assert "error" in data
 
 
+def test_console_runs_nanolab_commands(client):
+    import time
+
+    from nanolab import api as api_mod
+
+    api_mod.JOBS.clear()
+    resp = client.post("/api/actions/cli", json={"command": "uv run nanolab version"})
+    assert resp.status_code == 200
+    for _ in range(200):
+        jobs = client.get("/api/jobs").json()
+        if jobs and jobs[0]["status"] != "running" and jobs[0].get("output"):
+            break
+        time.sleep(0.05)
+    assert jobs[0]["status"] == "done"
+    assert "0.1.0" in jobs[0]["output"]
+
+
+def test_console_blocks_ui_command(client):
+    resp = client.post("/api/actions/cli", json={"command": "ui"})
+    assert resp.status_code == 400
+    assert client.post("/api/actions/cli", json={"command": ""}).status_code == 400
+
+
 def test_chat_action_requires_running_deployment(client):
     resp = client.post("/api/actions/chat", json={})
     assert resp.status_code == 400
