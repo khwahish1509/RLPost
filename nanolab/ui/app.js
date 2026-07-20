@@ -815,6 +815,7 @@ async function render() {
         a.classList.toggle("active", a.dataset.route === nav));
       if (changed) page.innerHTML = skeleton();
       try {
+        gradSeq = 0;  // deterministic gradient ids → identical renders match
         const html = await current();
         const apply = () => {
           // skip the DOM swap entirely when nothing changed — no flicker

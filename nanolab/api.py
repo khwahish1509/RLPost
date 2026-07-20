@@ -413,7 +413,6 @@ def build_app():
     from starlette.applications import Starlette
     from starlette.responses import FileResponse, JSONResponse
     from starlette.routing import Mount, Route
-    from starlette.staticfiles import StaticFiles
 
     def endpoint(fn):
         async def handler(request):
@@ -425,8 +424,18 @@ def build_app():
 
         return handler
 
+    NO_CACHE = {"Cache-Control": "no-store, must-revalidate"}
+
     async def index(request):
-        return FileResponse(UI_DIR / "index.html")
+        return FileResponse(UI_DIR / "index.html", headers=NO_CACHE)
+
+    async def asset(request):
+        name = request.path_params["name"]
+        target = (UI_DIR / name).resolve()
+        # never serve outside the ui dir
+        if UI_DIR.resolve() not in target.parents or not target.is_file():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return FileResponse(target, headers=NO_CACHE)
 
     async def hub(request):
         q = request.query_params
@@ -552,7 +561,7 @@ def build_app():
             Route("/api/actions/install", action_install, methods=["POST"]),
             Route("/api/actions/deploy", action_deploy, methods=["POST"]),
             Route("/api/actions/stop-deployment", action_stop_deployment, methods=["POST"]),
-            Mount("/assets", StaticFiles(directory=UI_DIR), name="assets"),
+            Route("/assets/{name:path}", asset),
             Route("/", index),
             Route("/{path:path}", index),  # hash-router fallback
         ]
