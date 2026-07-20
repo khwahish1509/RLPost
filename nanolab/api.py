@@ -19,6 +19,14 @@ from . import db
 
 UI_DIR = Path(__file__).parent / "ui"
 
+
+def ui_version() -> str:
+    """Newest mtime across UI files — changes whenever the UI code changes."""
+    newest = max(
+        (p.stat().st_mtime for p in UI_DIR.rglob("*") if p.is_file()), default=0
+    )
+    return str(int(newest))
+
 # ── background jobs (UI-triggered actions) ──────────────────────────────────
 JOBS: list[dict] = []
 _job_ids = itertools.count(1)
@@ -452,6 +460,9 @@ def build_app():
     async def jobs(request):
         return JSONResponse(JOBS)
 
+    async def version(request):
+        return JSONResponse({"ui": ui_version()})
+
     async def action_chat(request):
         """Proxy a chat turn to a running local deployment (avoids CORS)."""
         import httpx
@@ -586,6 +597,7 @@ def build_app():
             Route("/api/adapters", endpoint(_adapters)),
             Route("/api/defaults", endpoint(_defaults)),
             Route("/api/jobs", jobs),
+            Route("/api/version", version),
             Route("/api/actions/chat", action_chat, methods=["POST"]),
             Route("/api/actions/dismiss-job", action_dismiss_job, methods=["POST"]),
             Route("/api/actions/eval", action_eval, methods=["POST"]),

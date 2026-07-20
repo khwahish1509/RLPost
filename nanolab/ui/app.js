@@ -923,3 +923,19 @@ setInterval(() => {
     document.activeElement?.tagName);
   if (!document.hidden && !paletteOpen && !typing && current) render();
 }, 5000);
+
+/* self-update: long-lived tabs silently upgrade when the server ships new
+   UI code (stale tabs were the root of every "old bug still here" report) */
+let uiVersion = null;
+setInterval(async () => {
+  try {
+    const v = (await api("/version")).ui;
+    if (uiVersion === null) { uiVersion = v; return; }
+    const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(
+      document.activeElement?.tagName);
+    const chatting = typeof play !== "undefined" && (play.busy || play.thread.length);
+    if (v !== uiVersion && !typing && !chatting && !document.hidden) {
+      location.reload();
+    }
+  } catch {}
+}, 30000);
