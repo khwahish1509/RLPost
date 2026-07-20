@@ -273,6 +273,17 @@ def test_hub_handles_cli_failure(client, monkeypatch):
     assert "error" in data
 
 
+def test_chat_action_requires_running_deployment(client):
+    resp = client.post("/api/actions/chat", json={})
+    assert resp.status_code == 400
+    resp = client.post(
+        "/api/actions/chat",
+        json={"deployment_id": 99, "messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert resp.status_code == 400
+    assert "not running" in resp.json()["error"]
+
+
 def test_ui_shell_served(client):
     for path in ("/", "/evals", "/anything"):
         response = client.get(path)

@@ -311,6 +311,13 @@ pre.src { margin:0; padding:.7rem 1rem; font:11.5px/1.6 var(--mono);
 .tok-dec { color:var(--accent); }
 .tok-num { color:var(--warn); }
 
+/* playground */
+#play-input { background:var(--surface2); border:1px solid var(--border);
+  border-radius:var(--r-sm); color:var(--text); font:13px var(--sans);
+  padding:.55rem .75rem; }
+#play-input:focus { outline:none; border-color:var(--accent); }
+#play-input:disabled { opacity:.5; }
+
 /* skeleton loading */
 .skel { border-radius:var(--r-sm);
   background:linear-gradient(100deg,var(--surface) 40%,var(--surface2) 50%,var(--surface) 60%);

@@ -670,6 +670,78 @@ async function envDetail(id) {
     <div class="tabs">${tabs}</div>${body}`;
 }
 
+/* ── playground: chat with a deployed model ─────────────────────────── */
+
+let play = { depId: null, thread: [], busy: false };
+
+window.playSelect = (v) => { play.depId = v ? Number(v) : null; render(); };
+
+window.playSend = async (ev) => {
+  if (ev) ev.preventDefault();
+  const box = document.querySelector("#play-input");
+  const text = box ? box.value.trim() : "";
+  if (!text || play.busy || !play.depId) return;
+  play.thread.push({ role: "user", content: text });
+  play.busy = true;
+  render();
+  try {
+    const resp = await post("/actions/chat", {
+      deployment_id: play.depId,
+      messages: play.thread,
+    });
+    play.thread.push({ role: "assistant", content: resp.content });
+  } catch (err) {
+    play.thread.push({ role: "assistant", content: `⚠ ${err.message}` });
+  }
+  play.busy = false;
+  render();
+};
+
+window.playClear = () => { play.thread = []; render(); };
+
+async function playground() {
+  const deps = await api("/deployments");
+  const live = deps.filter((d) => d.status === "running");
+  if (live.length && !live.some((d) => d.id === play.depId))
+    play.depId = live[0].id;
+
+  if (!live.length)
+    return `${head("Playground", "chat with your own trained models")}
+      ${empty("server", "Nothing is serving yet",
+        "Deploy an adapter on the Inference page, then come back here to talk to it.",
+        "nanolab deployments create <adapter-id> --local")}`;
+
+  const picker = `<div class="panel"><div class="row" style="align-items:center">
+    <div class="field"><label>model</label>
+      <select onchange="playSelect(this.value)">${live
+        .map((d) => `<option value="${d.id}"${d.id === play.depId ? " selected" : ""}>
+          ${esc(`${d.base_model}:${d.adapter_id}`)} — deployment #${d.id}</option>`)
+        .join("")}</select></div>
+    <div class="hint" style="margin:0;flex:1">Runs on this machine — expect a
+      thoughtful pause (~30–90s), not chat-app speed.</div>
+    ${play.thread.length ? '<button class="btn ghost" onclick="playClear()">Clear</button>' : ""}
+  </div></div>`;
+
+  const thread = play.thread.length
+    ? `<div class="tablewrap" style="margin-bottom:1rem">${play.thread
+        .map((m) => `<div class="msg ${esc(m.role)}"><div class="role">${esc(
+          m.role === "assistant" ? "your model" : "you")}</div>
+          <pre>${esc(m.content)}</pre></div>`).join("")}
+        ${play.busy ? '<div class="msg assistant"><div class="role">your model</div><pre class="dim">thinking…</pre></div>' : ""}
+      </div>`
+    : `<div class="empty" style="margin-bottom:1rem">
+        <div class="headline">Ask your trained model anything</div>
+        <div>Try a math word problem — that's what it practiced.</div></div>`;
+
+  return `${head("Playground", "chat with your own trained models")}
+    ${picker}${thread}
+    <form onsubmit="playSend(event)" class="panel" style="display:flex;gap:.6rem">
+      <input id="play-input" placeholder="${play.busy ? "waiting for the model…" : "Type a message and press Enter"}"
+        ${play.busy ? "disabled" : ""} style="flex:1">
+      <button class="btn" ${play.busy ? "disabled" : ""}>Send</button>
+    </form>`;
+}
+
 async function guide() {
   return `${head("How to use nanolab", "the 2-minute tour — no terminal needed")}
   <div class="guide">
@@ -797,6 +869,7 @@ const routes = [
   [/^#\/training$/, training, "training"],
   [/^#\/training\/(\d+)$/, trainingDetail, "training"],
   [/^#\/inference$/, inference, "inference"],
+  [/^#\/playground$/, playground, "playground"],
   [/^#\/guide$/, guide, "guide"],
 ];
 

@@ -452,6 +452,36 @@ def build_app():
     async def jobs(request):
         return JSONResponse(JOBS)
 
+    async def action_chat(request):
+        """Proxy a chat turn to a running local deployment (avoids CORS)."""
+        import httpx
+
+        body = await request.json()
+        dep_id = body.get("deployment_id")
+        messages = body.get("messages") or []
+        if not dep_id or not messages:
+            return JSONResponse({"error": "deployment_id and messages required"}, status_code=400)
+        from . import serve as serve_mod
+
+        dep = next((d for d in serve_mod.list_deployments()
+                    if d.id == int(dep_id) and d.status == "running"), None)
+        if dep is None:
+            return JSONResponse({"error": "that deployment is not running"}, status_code=400)
+        payload = {
+            "model": dep.served_name,
+            "messages": messages,
+            "temperature": body.get("temperature", 0.7),
+            "max_tokens": body.get("max_tokens", 400),
+        }
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                resp = await client.post(f"{dep.endpoint}/chat/completions", json=payload)
+                resp.raise_for_status()
+                content = resp.json()["choices"][0]["message"]["content"]
+        except httpx.HTTPError as exc:
+            return JSONResponse({"error": f"model did not answer: {exc}"}, status_code=502)
+        return JSONResponse({"content": content})
+
     async def action_dismiss_job(request):
         body = await request.json()
         jid = body.get("id")
@@ -556,6 +586,7 @@ def build_app():
             Route("/api/adapters", endpoint(_adapters)),
             Route("/api/defaults", endpoint(_defaults)),
             Route("/api/jobs", jobs),
+            Route("/api/actions/chat", action_chat, methods=["POST"]),
             Route("/api/actions/dismiss-job", action_dismiss_job, methods=["POST"]),
             Route("/api/actions/eval", action_eval, methods=["POST"]),
             Route("/api/actions/install", action_install, methods=["POST"]),
