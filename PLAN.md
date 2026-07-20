@@ -153,13 +153,13 @@ Done when: user clicks ＋ New training run, closes the laptop, reopens later, a
 - [x] `nanolab deployments create <adapter-id> --local` + Deploy/Stop buttons and an adapters registry on the Inference page
 - [x] `eval run -m base:adapter` against the local endpoint — **LOOP CLOSED 2026-07-19** (eval #10, reward 1.000)
 - [ ] Instrument columns 3–4 via a scribe-stream eval with the Player pointed at the local endpoint
-- [ ] Playground page (v0.2 design doc): side-by-side base vs base:adapter chat on local serving
+- [x] Playground shipped (single-model chat with any deployment; side-by-side A/B compare deferred to v0.2)
 
 Done when: `nanolab instrument <run> <run>` prints all four columns produced entirely on one laptop.
 
 ### Phase C — Hub browsing polish (small)
 
-- [ ] Surface hub environment discovery in the Environments page if the prime CLI exposes a listing/search; else keep install-by-name + link out
+- [x] Hub browser shipped: search + star-ranked grid over the 1,388 hub environments with one-click install, inside the Environments tab
 
 ## AFTER v0.1 (the v0.2 flagship)
 
