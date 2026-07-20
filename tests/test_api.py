@@ -296,6 +296,41 @@ def test_console_blocks_ui_command(client):
     assert client.post("/api/actions/cli", json={"command": ""}).status_code == 400
 
 
+def test_configs_and_train_cloud_action(client, monkeypatch, tmp_path):
+    import time
+
+    from nanolab import api as api_mod
+    from nanolab import cloud
+
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "demo.toml").write_text(
+        'model = "m"\nmax_steps = 5\nlearning_rate = 1e-5\n[[env]]\nid = "gsm8k"\n'
+    )
+    configs = client.get("/api/configs").json()
+    assert configs[0]["name"] == "demo" and configs[0]["env"] == "gsm8k"
+
+    api_mod.JOBS.clear()
+    pushed = {}
+    monkeypatch.setattr(cloud, "push", lambda c: pushed.setdefault("config", c))
+    resp = client.post("/api/actions/train-cloud", json={"config": "configs/demo.toml"})
+    assert resp.status_code == 200
+    for _ in range(100):
+        jobs = client.get("/api/jobs").json()
+        if jobs and jobs[0]["status"] != "running":
+            break
+        time.sleep(0.01)
+    assert jobs[0]["status"] == "done" and pushed["config"] == "configs/demo.toml"
+    # path traversal / junk rejected
+    assert client.post("/api/actions/train-cloud", json={"config": "../evil.toml"}).status_code == 400
+    assert client.post("/api/actions/train-cloud", json={}).status_code == 400
+
+
+def test_console_rejects_arbitrary_commands(client):
+    resp = client.post("/api/actions/cli", json={"command": "rm -rf /"})
+    assert resp.status_code == 400
+    assert "read-only" in resp.json()["error"]
+
+
 def test_chat_action_requires_running_deployment(client):
     resp = client.post("/api/actions/chat", json={})
     assert resp.status_code == 400

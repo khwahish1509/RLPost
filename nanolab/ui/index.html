@@ -35,9 +35,6 @@
       <a href="#/playground" data-route="playground">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         <span>Playground</span></a>
-      <a href="#/console" data-route="console">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m4 17 6-6-6-6M12 19h8"/></svg>
-        <span>Console</span></a>
       <div class="group">Help</div>
       <a href="#/guide" data-route="guide">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15A2.5 2.5 0 0 0 6.5 22H20v-2.5"/></svg>
@@ -49,6 +46,19 @@
     </div>
   </aside>
   <main id="page"></main>
+</div>
+<div id="console-drawer">
+  <div id="console-out">
+    <div id="console-history"></div>
+  </div>
+  <form class="bar" onsubmit="consoleRun(event)">
+    <button type="button" class="chev" id="console-chev" onclick="toggleConsole()"
+      title="toggle console (`)">⌃</button>
+    <span class="mono prompt">$ nanolab</span>
+    <input id="console-input" placeholder="type a command — eval list, training show 2, cloud status…"
+      autocomplete="off" spellcheck="false">
+    <button class="btn" type="submit">Run</button>
+  </form>
 </div>
 <div id="toast"></div>
 <script src="/assets/app.js"></script>

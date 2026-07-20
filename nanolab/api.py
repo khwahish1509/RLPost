@@ -545,30 +545,54 @@ def build_app():
         ("env", "list"), ("eval", "list"), ("eval", "show"), ("eval", "compare"),
         ("training", "list"), ("training", "show"), ("deployments", "list"),
         ("cloud", "list"), ("cloud", "status"), ("instrument",), ("version",),
+        ("report",),
     }
 
-    async def action_console(request):
+    async def action_cli(request):
         body = await request.json()
-        raw = (body.get("cmd") or "").strip()
+        raw = (body.get("command") or "").strip()
         parts = raw.split()
-        if parts[:1] == ["nanolab"]:
-            parts = parts[1:]
-        allowed = any(
+        # tolerate the prefixes people naturally type
+        while parts and parts[0] in ("uv", "run", "nanolab", "$"):
+            parts.pop(0)
+        allowed = parts and any(
             tuple(parts[: len(sig)]) == sig for sig in CONSOLE_ALLOWED
         )
-        if not parts or not allowed:
+        if not allowed:
             cmds = sorted({" ".join(s) for s in CONSOLE_ALLOWED})
             return JSONResponse(
-                {"output": "console runs read-only nanolab commands:\n  "
-                 + "\n  ".join(cmds)},
+                {"error": "the console runs read-only nanolab commands: "
+                 + " · ".join(cmds)},
+                status_code=400,
             )
-        proc = subprocess.run(
-            [sys.executable, "-m", "nanolab.cli", *parts],
-            capture_output=True, text=True, timeout=120,
-        )
-        return JSONResponse(
-            {"output": (proc.stdout + proc.stderr).strip() or "(no output)"}
-        )
+        job = {
+            "id": next(_job_ids), "kind": "cli",
+            "label": f"$ nanolab {' '.join(parts)}",
+            "status": "running", "error": None, "output": None,
+            "started_at": db.utcnow(),
+        }
+        JOBS.insert(0, job)
+        del JOBS[20:]
+
+        def run_cli():
+            proc = subprocess.run(
+                [sys.executable, "-m", "nanolab.cli", *parts],
+                capture_output=True, text=True, timeout=300,
+            )
+            job["output"] = (proc.stdout + proc.stderr).strip() or "(no output)"
+            if proc.returncode != 0:
+                raise RuntimeError(job["output"][-300:])
+
+        def wrapper():
+            try:
+                run_cli()
+                job["status"] = "done"
+            except BaseException as exc:
+                job["status"] = "failed"
+                job["error"] = str(exc)[:400]
+
+        threading.Thread(target=wrapper, daemon=True).start()
+        return JSONResponse({"job": job})
 
     async def action_train_cloud(request):
         body = await request.json()
@@ -729,7 +753,7 @@ def build_app():
             Route("/api/configs", endpoint(_configs)),
             Route("/api/cloud", endpoint(_cloud_runs)),
             Route("/api/actions/train-cloud", action_train_cloud, methods=["POST"]),
-            Route("/api/actions/console", action_console, methods=["POST"]),
+            Route("/api/actions/cli", action_cli, methods=["POST"]),
             Route("/api/jobs", jobs),
             Route("/api/version", version),
             Route("/api/actions/cli", action_cli, methods=["POST"]),

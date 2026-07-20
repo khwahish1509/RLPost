@@ -93,6 +93,31 @@ def test_merge_artifacts_roundtrip(tmp_db):
     assert Path(adapter["path"]).joinpath("adapter_model.safetensors").exists()
 
 
+def test_poll_once_transitions(tmp_db, monkeypatch):
+    (tmp_db / "configs").mkdir()
+    (tmp_db / "configs" / "x.toml").write_text("max_steps = 1")
+    monkeypatch.setattr(cloud, "_username", lambda: "someone")
+    monkeypatch.setattr(cloud, "_kaggle", lambda args: "ok")
+    ref = cloud.push("configs/x.toml")
+
+    # pushed → running
+    monkeypatch.setattr(cloud, "status", lambda r: "running")
+    events = cloud.poll_once()
+    assert any("running" in e for e in events)
+    assert cloud.list_runs()[0]["status"] == "running"
+
+    # running → complete → auto-merge (pull mocked)
+    monkeypatch.setattr(cloud, "status", lambda r: "complete")
+    monkeypatch.setattr(cloud, "pull", lambda r: [7])
+    events = cloud.poll_once()
+    assert any("merged" in e for e in events)
+
+    # a re-push supersedes older open rows for the same kernel
+    cloud.push("configs/x.toml")
+    statuses = [r["status"] for r in cloud.list_runs() if r["kernel_ref"] == ref]
+    assert statuses.count("pushed") == 1
+
+
 def test_merge_rejects_junk(tmp_db):
     junk = tmp_db / "junk"
     junk.mkdir()

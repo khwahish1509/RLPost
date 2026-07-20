@@ -311,6 +311,34 @@ pre.src { margin:0; padding:.7rem 1rem; font:11.5px/1.6 var(--mono);
 .tok-dec { color:var(--accent); }
 .tok-num { color:var(--warn); }
 
+/* console drawer — docked to the bottom of every page */
+#console-drawer { position:fixed; left:224px; right:0; bottom:0; z-index:40;
+  background:var(--surface); border-top:1px solid var(--border); }
+#console-drawer .bar { display:flex; align-items:center; gap:.6rem;
+  padding:.45rem .9rem; margin:0; }
+#console-drawer .prompt { color:var(--accent); font-size:12.5px; white-space:nowrap; }
+#console-drawer .chev { background:none; border:none; color:var(--dim);
+  cursor:pointer; font-size:13px; padding:.1rem .3rem;
+  transition:transform .15s; }
+#console-drawer.open .chev { transform:rotate(180deg); }
+#console-drawer .chev:hover { color:var(--text); }
+#console-input { flex:1; background:var(--surface2); border:1px solid var(--border);
+  border-radius:var(--r-sm); color:var(--text); font:12.5px var(--mono);
+  padding:.45rem .7rem; }
+#console-input:focus { outline:none; border-color:var(--accent); }
+#console-out { display:none; max-height:44vh; overflow-y:auto;
+  border-bottom:1px solid var(--border); padding:.7rem .9rem; }
+#console-drawer.open #console-out { display:block; }
+#console-out .centry { border:1px solid var(--border); border-radius:var(--r-sm);
+  background:var(--bg); margin-bottom:.5rem; overflow:hidden; }
+#console-out .chead { display:flex; align-items:center; gap:.6rem;
+  padding:.4rem .7rem; font:11.5px var(--mono); color:var(--text);
+  border-bottom:1px solid var(--border); background:var(--surface2); }
+#console-out pre { margin:0; padding:.55rem .8rem; font:11.5px/1.55 var(--mono);
+  white-space:pre-wrap; max-height:260px; overflow-y:auto; }
+main { padding-bottom:6.5rem; }
+@media (max-width:840px) { #console-drawer { left:64px; } }
+
 /* playground */
 #play-input { background:var(--surface2); border:1px solid var(--border);
   border-radius:var(--r-sm); color:var(--text); font:13px var(--sans);
