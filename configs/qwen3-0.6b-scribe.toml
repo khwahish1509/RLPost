@@ -1,22 +1,33 @@
-# S2: train a small Scribe on Lift, using the multi-turn served-rollout path.
-# Bring-up uses the FAKE Player: reward becomes "did the notebook carry the
-# figures forward" — a clean, zero-cost curriculum for note-taking mechanics.
-# Graduate to a real API Player (see [[env]] args) once the curve moves.
+# S2: train a small Scribe on Lift, via the multi-turn served-rollout path.
+#
+# The curriculum is SELECTION UNDER A BINDING BUDGET, and it's here for a
+# measured reason. The plain figure-chain task turned out to be pure
+# transcription: a prompted UNTRAINED Qwen-0.6B already scores Lift 0.905
+# (eval #16/#17), matching a frontier Scribe — nothing to train. So each
+# RECORD now buries the needed figure among `distractors_per_task` one-off
+# figures (tagged `needed later` / `one-off`), and `notebook_char_cap` is
+# tight enough that copying everything overflows and truncates away the
+# figures that matter. A model that blindly transcribes drops to Lift 0.548
+# (base Qwen, eval #22 — inside the 10–80% window); the learnable skill is
+# keeping only what's reused. The fake Player keeps this $0 and offline, so
+# it runs on a free Kaggle T4 (`nanolab train --cloud`).
 
 model = "Qwen/Qwen3-0.6B"
-max_steps = 100
-batch_size = 4           # streams per step — each episode is 7 full turns
+max_steps = 80
+batch_size = 4           # streams per step — each episode is 8 full turns
 rollouts_per_example = 4
-learning_rate = 1e-4
+# gsm8k taught the lesson: 1e-4 climbed then collapsed, 5e-5 stayed clean.
+# start conservative and checkpoint every decade so the peak is recoverable.
+learning_rate = 5e-5
 checkpoint_every = 10
 seed = 0
-max_new_tokens = 512     # notebooks are longer than boxed math answers
+max_new_tokens = 512     # the notebook is a full rewrite each turn
 temperature = 1.0
 micro_batch_size = 1     # turn-pair contexts are long; keep the loss pass small
 enable_thinking = false
-# Lift starts near 0 for an untrained scribe — that's the point, not a defect;
-# only abort if the task is somehow already solved.
-trainability_window = [-1.0, 0.8]
+# base sits at ~0.55 on this curriculum; refuse only if it drifts out of the
+# window where GRPO has mixed groups to learn from.
+trainability_window = [0.1, 0.85]
 
 [lora]
 r = 16
@@ -24,4 +35,4 @@ alpha = 32
 
 [[env]]
 id = "scribe-stream"
-args = { player_model = "fake" }
+args = { player_model = "fake", num_tasks = 8, distractors_per_task = 3, mark_reuse = true, notebook_char_cap = 400 }

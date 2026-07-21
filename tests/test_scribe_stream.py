@@ -59,6 +59,38 @@ def test_num_tasks_flows_through_env():
     assert len(env.get_dataset()[0]["info"]["tasks"]) == 12
 
 
+def test_hard_mode_adds_tagged_distractors_without_breaking_solvability():
+    plain = generate_stream(10_000, num_tasks=8)
+    hard = generate_stream(10_000, num_tasks=8, distractors_per_task=3, mark_reuse=True)
+
+    # tasks, answers and dependencies are identical — only the RECORD changes
+    assert [t.answer for t in hard.tasks] == [t.answer for t in plain.tasks]
+    assert [t.foreign_values for t in hard.tasks] == [t.foreign_values for t in plain.tasks]
+
+    real_values = {t.answer for t in hard.tasks}
+    for i, task in enumerate(hard.tasks):
+        lines = task.reveal.splitlines()
+        assert len(lines) == 1 + 3  # the real figure + 3 distractors
+        # the real figure is still present and still solvable from the record
+        assert f"= {task.answer}" in task.reveal
+        assert ("(needed later)" in task.reveal) or ("(one-off)" in task.reveal)
+        # distractor values never coincide with a real figure (can't fake Lift)
+        distractor_lines = [ln for ln in lines if "sample)" in ln]
+        assert len(distractor_lines) == 3
+        for ln in distractor_lines:
+            dval = int(ln.split("= ")[1].split(" ")[0])
+            assert dval not in real_values
+
+
+def test_hard_mode_flows_through_env_arg():
+    env = load_environment(
+        player_model="fake", num_train_streams=2,
+        distractors_per_task=2, mark_reuse=True,
+    )
+    record = env.get_dataset()[0]["info"]["tasks"][0]["reveal"]
+    assert record.count("\n") == 2  # 1 real + 2 distractors → 2 newlines
+
+
 def test_parse_int():
     assert parse_int("the answer is \\boxed{42}") == 42
     assert parse_int("= 1,234 total") == 1234

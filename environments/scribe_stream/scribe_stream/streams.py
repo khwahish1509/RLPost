@@ -49,7 +49,26 @@ def _figure_name(idx: int, item: str) -> str:
     return f"figure #{idx + 1} ({item})"
 
 
-def generate_stream(seed: int, num_tasks: int = N_TASKS) -> Stream:
+def generate_stream(
+    seed: int,
+    num_tasks: int = N_TASKS,
+    distractors_per_task: int = 0,
+    mark_reuse: bool = False,
+) -> Stream:
+    """Build one stream.
+
+    Defaults reproduce the original transcription task exactly. The two extra
+    knobs create a *selection* task — a curriculum where note-taking stops
+    being trivial:
+
+    - ``distractors_per_task``: each RECORD reveals this many extra one-off
+      figures that are never referenced again. Copied indiscriminately they
+      pad the notebook until — under a binding ``notebook_char_cap`` — the
+      figures that ARE needed get truncated away. The learnable skill is
+      dropping them.
+    - ``mark_reuse``: tag each revealed figure ``(needed later)`` or
+      ``(one-off)``, giving the Scribe the signal it must learn to act on.
+    """
     rng = random.Random(f"stream:{seed}")
     # more tasks than distinct items → cycle names with a shipment suffix so
     # every figure still has a unique, referenceable label at any horizon
@@ -63,6 +82,7 @@ def generate_stream(seed: int, num_tasks: int = N_TASKS) -> Stream:
         rng.shuffle(items)
     tasks: list[Task] = []
     figures: list[int] = []  # figures[i] = revealed answer of task i
+    referenced: set[int] = set()  # task indices some later task depends on
 
     # task 1: self-contained
     q, u = rng.randint(12, 48), rng.randint(3, 9)
@@ -82,6 +102,7 @@ def generate_stream(seed: int, num_tasks: int = N_TASKS) -> Stream:
 
     for i in range(1, num_tasks):
         j = rng.randrange(len(figures))  # which earlier figure this task needs
+        referenced.add(j)
         v = figures[j]
         ref = _figure_name(j, items[j])
         kind = rng.choice(["add", "sub", "mul", "combine"] if i >= 2 else ["add", "sub", "mul"])
@@ -115,6 +136,7 @@ def generate_stream(seed: int, num_tasks: int = N_TASKS) -> Stream:
             k = rng.randrange(len(figures))
             if k == j:
                 k = (j + 1) % len(figures)
+            referenced.add(k)
             v2 = figures[k]
             ref2 = _figure_name(k, items[k])
             answer = v + v2
@@ -134,4 +156,39 @@ def generate_stream(seed: int, num_tasks: int = N_TASKS) -> Stream:
         )
         figures.append(answer)
 
+    if mark_reuse or distractors_per_task:
+        _decorate_records(
+            rng, tasks, items, figures, referenced,
+            distractors_per_task, mark_reuse,
+        )
     return Stream(seed=seed, tasks=tasks)
+
+
+def _decorate_records(
+    rng, tasks, items, figures, referenced, distractors_per_task, mark_reuse
+):
+    """Rewrite each task's RECORD with reuse tags and distractor one-offs.
+
+    Runs only when a hard-mode knob is set, so the default stream (and every
+    test that pins it) is untouched. Distractor values never collide with a
+    real figure, so they can't accidentally satisfy the fake Player.
+    """
+    real_values = set(figures)
+    for i, task in enumerate(tasks):
+        base = f"{_figure_name(i, items[i])} = {figures[i]}"
+        if mark_reuse:
+            base += " (needed later)" if i in referenced else " (one-off)"
+        lines = [base]
+        for d in range(distractors_per_task):
+            while True:
+                dval = rng.randint(100, 9999)
+                if dval not in real_values:
+                    break
+            ditem = rng.choice(ITEMS)
+            dline = f"figure #{i + 1}.{d + 1} ({ditem} sample) = {dval}"
+            if mark_reuse:
+                dline += " (one-off)"
+            lines.append(dline)
+        if distractors_per_task:
+            rng.shuffle(lines)  # hide the needed figure among the noise
+        task.reveal = "\n".join(lines)

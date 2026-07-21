@@ -96,12 +96,18 @@ class ScribeStreamEnv(vf.MultiTurnEnv):
         return [message]
 
 
-def _build_dataset(num_streams: int, seed_base: int, num_tasks: int = N_TASKS):
+def _build_dataset(
+    num_streams: int,
+    seed_base: int,
+    num_tasks: int = N_TASKS,
+    distractors_per_task: int = 0,
+    mark_reuse: bool = False,
+):
     from datasets import Dataset
 
     rows = []
     for seed in range(seed_base, seed_base + num_streams):
-        stream = generate_stream(seed, num_tasks)
+        stream = generate_stream(seed, num_tasks, distractors_per_task, mark_reuse)
         task0 = stream.tasks[0]
         rows.append(
             {
@@ -133,6 +139,8 @@ def load_environment(
     num_tasks: int = N_TASKS,
     player_max_tokens: int = 400,
     player_timeout: float = 120.0,
+    distractors_per_task: int = 0,
+    mark_reuse: bool = False,
 ):
     player_model = player_model or os.environ.get("NANOLAB_PLAYER_MODEL", "fake")
     player_base_url = player_base_url or os.environ.get("NANOLAB_API_BASE_URL", "")
@@ -174,7 +182,11 @@ def load_environment(
         player=player,
         notebook_char_cap=notebook_char_cap,
         num_tasks=num_tasks,
-        dataset=lambda: _build_dataset(num_train_streams, 0, num_tasks),
-        eval_dataset=lambda: _build_dataset(num_eval_streams, EVAL_SEED_BASE, num_tasks),
+        dataset=lambda: _build_dataset(
+            num_train_streams, 0, num_tasks, distractors_per_task, mark_reuse
+        ),
+        eval_dataset=lambda: _build_dataset(
+            num_eval_streams, EVAL_SEED_BASE, num_tasks, distractors_per_task, mark_reuse
+        ),
         rubric=rubric,
     )

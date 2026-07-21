@@ -109,11 +109,17 @@ window. It doesn't: a prompted *untrained* Qwen-0.6B already scores **Lift
 just as well (0.905 with a grok Player), matching a frontier Scribe's own 0.857.
 On these streams, note-taking is *transcription*, which the base model has
 already mastered; doubling the horizon to 16 tasks doesn't change it. So the lab
-refuses to train — the honest outcome. The trainable version needs a curriculum
-that demands *judgment*: selection under a binding notebook budget with
-distractor records, so indiscriminate copying overflows and drops what's needed.
-The multi-turn trainer, the `num_tasks` horizon knob, and env-aware cloud
-training are all wired and tested for that next run.
+refuses to train — the honest outcome.
+
+**So the task was rebuilt to demand *judgment*.** Each RECORD now buries the
+needed figure among one-off distractors (tagged `needed later` / `one-off`), and
+a tight notebook cap means copying everything overflows and truncates away what
+matters. That single change moves the prompted base model from **0.905 → Lift
+0.548** — into the trainable window: it blindly transcribes all the noise,
+overflows the cap, and drops needed figures. Keeping only the reused lines fits
+the budget and scores ~1.0, so there's ~0.45 of genuine headroom for GRPO to
+close. `configs/qwen3-0.6b-scribe.toml` trains on exactly this, with the offline
+fake Player (so it's $0 on a free Kaggle T4). That is the next run.
 
 ## Status
 
