@@ -80,8 +80,18 @@ Where does improvement actually live? For the same tasks:
 
 If +context ≈ +weights, the failure was **missing knowledge** — text closes it,
 on any model, including closed ones. If +weights ≫ +context, it was **missing
-skill** — only training closes it. Current live reading on `scribe-stream`:
-`base 0.000 · +context +0.857 · +weights/+both pending the next adapter`.
+skill** — only training closes it. Full live reading on `scribe-stream`, all
+four columns produced on one laptop (Player served locally on MPS, notebook
+written by a frozen Scribe):
+
+```
+1 base       0.000     Qwen-0.6B reader, empty notebook
+2 +context   0.393     ... reading the notebook
+3 +weights   0.000     a gsm8k-trained adapter, empty notebook
+4 +both      0.429     the adapter + the notebook
+→ KNOWLEDGE-DOMINANT: notes lift +0.393; weight-training lifts +0.000 —
+  no arithmetic skill can invent a figure the model was never shown.
+```
 
 ## The Scribe (the destination)
 
@@ -90,8 +100,20 @@ each later task needs a figure revealed only by an earlier one. A frozen Player
 attempts each task statelessly; the model under test — the **Scribe** — can do
 exactly one thing: rewrite a notebook capped at ~1,500 tokens. Reward = Lift.
 Anti-cheat trio: the cap (kills log-dumping), held-out stream seeds (kills
-memorizing), the frozen Player (kills "the model just got better"). The next
-milestone is GRPO-training a small Scribe on Lift with nanolab's own trainer.
+memorizing), the frozen Player (kills "the model just got better").
+
+**What the baseline measurement found (and why it matters).** Before training a
+Scribe, the trainability gate demands the prompted baseline sit in the 10–80%
+window. It doesn't: a prompted *untrained* Qwen-0.6B already scores **Lift
+0.905** — it writes a clean `figure #N = value` ledger that a real reader uses
+just as well (0.905 with a grok Player), matching a frontier Scribe's own 0.857.
+On these streams, note-taking is *transcription*, which the base model has
+already mastered; doubling the horizon to 16 tasks doesn't change it. So the lab
+refuses to train — the honest outcome. The trainable version needs a curriculum
+that demands *judgment*: selection under a binding notebook budget with
+distractor records, so indiscriminate copying overflows and drops what's needed.
+The multi-turn trainer, the `num_tasks` horizon knob, and env-aware cloud
+training are all wired and tested for that next run.
 
 ## Status
 

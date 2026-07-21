@@ -39,6 +39,26 @@ def test_streams_are_deterministic_and_solvable():
     assert all(t.foreign_values for t in a.tasks[1:])
 
 
+def test_longer_horizon_keeps_unique_referenceable_labels():
+    # beyond the 10 base item names, labels must stay unique so every figure
+    # is still referenceable by name — otherwise the notebook is ambiguous
+    stream = generate_stream(EVAL_SEED_BASE, num_tasks=16)
+    assert len(stream.tasks) == 16
+    labels = [t.reveal.split(" = ")[0] for t in stream.tasks]
+    assert len(set(labels)) == len(labels)
+    revealed: list[int] = []
+    for task in stream.tasks:
+        for v in task.foreign_values:
+            assert v in revealed
+        revealed.append(task.answer)
+
+
+def test_num_tasks_flows_through_env():
+    env = load_environment(player_model="fake", num_tasks=12, num_train_streams=2)
+    assert env.max_turns == 12 + 2
+    assert len(env.get_dataset()[0]["info"]["tasks"]) == 12
+
+
 def test_parse_int():
     assert parse_int("the answer is \\boxed{42}") == 42
     assert parse_int("= 1,234 total") == 1234

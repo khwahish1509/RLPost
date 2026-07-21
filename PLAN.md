@@ -124,17 +124,18 @@ Done when: a stranger reproduces the Phase-2 anchor check from the README in und
 - [x] Anti-cheat trio: ~1,500-token cap enforced by truncation in code · held-out eval seeds · frozen Player at temperature 0
 - [x] **S1 PASSED (2026-07-17)**: prompted Grok Scribe on 10 held-out streams → **Lift 0.857** (Player: 0.0% without notes → 85.7% with), zero errors. There is signal to train on.
 - [x] Cache all Player calls (disk cache in .cache/player, T=0 so the cache is honest; `player_model="fake"` for free offline mechanics — 6 tests cover the extremes)
-- [ ] GRPO-train a small Scribe (Qwen3 0.6B–1.7B) on Lift reward using nanolab's own trainer
-- [ ] S2 check: trained small Scribe ≥ prompted same-size Scribe on Lift
+- [x] Multi-turn trainer wired: PolicyServer + `env.generate` + per-turn pairs → unchanged `grpo_backward`; env-aware cloud kernel (`nanolab train --cloud configs/qwen3-0.6b-scribe.toml` installs `environments/scribe_stream` as an editable package, skips the gsm8k exam); `num_tasks` is now a first-class env arg (horizon knob)
+- [x] **S2 BASELINE MEASURED (2026-07-21) — the trainability gate did its job.** Prompted *untrained* Qwen3-0.6B as the Scribe already scores **Lift 0.905** against the fake Player (eval #16, n=6, 8 tasks) *and* **0.905** against a real grok Player (eval #17) — essentially matching the frontier grok Scribe's own **0.857** (eval #5). Its clean `figure #N (item) = value` ledger transfers to a real reader unchanged; its only failures are occasional notebook *collapse*. Doubling the horizon to 16 tasks did not open a gap (≈0.95, eval #18). **Diagnosis: on these streams note-taking reduces to transcription, which the base model has already mastered — there is no trainable gap, and the 0.8 trainability ceiling correctly refuses to train.** A good RL engineer does not fake a win on a solved task.
+- [ ] **BLOCKED ON A HARDER CURRICULUM (the real Phase-7 finale).** The lever is task *design*, not horizon: the streams must require *judgment the base model lacks* before training can help. Evidenced next step — selection under a *binding* notebook budget with distractor records (some figures marked reused, some one-off): a base model that transcribes everything overflows the cap and drops needed figures; a trained Scribe learns to keep only what's reused. `num_tasks` + a tight `notebook_char_cap` are already plumbed for this.
+- [ ] S2 check (after the harder curriculum lands): trained small Scribe ≥ prompted same-size Scribe on Lift
 
-Done when: a small model, trained in our own lab, measurably out-teaches its untrained self — running on our own machinery.
+Done when: a small model, trained in our own lab, measurably out-teaches its untrained self — running on our own machinery. (Gated: needs a curriculum where the untrained baseline sits inside the trainable window.)
 
 ### THE INSTRUMENT (rung one of the frontier ladder — no training required)
 
 - [x] `nanolab instrument <run> [<run>]`: the four-column comparison — base · +context · +weights · +both — read from stored stream-eval runs, with the missing-knowledge vs missing-skill verdict computed from the gaps
-- [x] Columns 1–2 live with real data: scribe-stream, frozen Player → base 0.000, +context +0.857
-- [ ] Columns 3–4: rerun the stream eval with the Player served as `base:adapter` (needs the first score-moving adapter + a serving session)
-- [ ] The north-star experiment: does a *trained* Scribe's lift transfer to less-similar tasks better than a prompted one's? (After S2.)
+- [x] **ALL FOUR COLUMNS LIVE ON ONE LAPTOP (2026-07-21)** — a self-consistent reading with the *same* Player family, notebook written by a grok Scribe, Player served locally on MPS (base on :58001, run-3 adapter #19 on :58002). Eval #19 (base Player) + eval #21 (adapter Player): **base 0.000 · +context +0.393 · +weights +0.000 · +both +0.429**. Verdict **KNOWLEDGE-DOMINANT**: the notebook lifts the Player by +0.393 while a gsm8k-trained adapter *with no notes* still scores 0.000 — no arithmetic skill can invent a figure it was never shown. (The frontier-reader ceiling is higher: with a grok Player the same notebook lifts +0.857, eval #5 — the 0.6B reader simply can't always do the arithmetic even once it has the figures.)
+- [ ] The north-star experiment: does a *trained* Scribe's lift transfer to less-similar tasks better than a prompted one's? (Gated on a trainable Scribe — see the harder-curriculum item above.)
 
 ## THE MOLDING (v0.2 core): match the hosted-product experience, $0, single-user
 

@@ -49,9 +49,18 @@ def _figure_name(idx: int, item: str) -> str:
     return f"figure #{idx + 1} ({item})"
 
 
-def generate_stream(seed: int) -> Stream:
+def generate_stream(seed: int, num_tasks: int = N_TASKS) -> Stream:
     rng = random.Random(f"stream:{seed}")
-    items = rng.sample(ITEMS, N_TASKS)
+    # more tasks than distinct items → cycle names with a shipment suffix so
+    # every figure still has a unique, referenceable label at any horizon
+    if num_tasks <= len(ITEMS):
+        items = rng.sample(ITEMS, num_tasks)
+    else:
+        items = [
+            f"{ITEMS[i % len(ITEMS)]} batch-{i // len(ITEMS) + 1}"
+            for i in range(num_tasks)
+        ]
+        rng.shuffle(items)
     tasks: list[Task] = []
     figures: list[int] = []  # figures[i] = revealed answer of task i
 
@@ -71,7 +80,7 @@ def generate_stream(seed: int) -> Stream:
     )
     figures.append(total)
 
-    for i in range(1, N_TASKS):
+    for i in range(1, num_tasks):
         j = rng.randrange(len(figures))  # which earlier figure this task needs
         v = figures[j]
         ref = _figure_name(j, items[j])

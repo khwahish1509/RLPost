@@ -45,8 +45,11 @@ def _message_text(message) -> str:
 
 
 class ScribeStreamEnv(vf.MultiTurnEnv):
-    def __init__(self, player, notebook_char_cap: int = NOTEBOOK_CHAR_CAP, **kwargs):
-        super().__init__(max_turns=N_TASKS + 2, **kwargs)
+    def __init__(
+        self, player, notebook_char_cap: int = NOTEBOOK_CHAR_CAP,
+        num_tasks: int = N_TASKS, **kwargs,
+    ):
+        super().__init__(max_turns=num_tasks + 2, **kwargs)
         self.player = player
         self.notebook_char_cap = notebook_char_cap
 
@@ -93,12 +96,12 @@ class ScribeStreamEnv(vf.MultiTurnEnv):
         return [message]
 
 
-def _build_dataset(num_streams: int, seed_base: int):
+def _build_dataset(num_streams: int, seed_base: int, num_tasks: int = N_TASKS):
     from datasets import Dataset
 
     rows = []
     for seed in range(seed_base, seed_base + num_streams):
-        stream = generate_stream(seed)
+        stream = generate_stream(seed, num_tasks)
         task0 = stream.tasks[0]
         rows.append(
             {
@@ -107,7 +110,7 @@ def _build_dataset(num_streams: int, seed_base: int):
                     {
                         "role": "user",
                         "content": (
-                            f"Task 1/{N_TASKS} was:\n  {task0.text}\n\n"
+                            f"Task 1/{num_tasks} was:\n  {task0.text}\n\n"
                             f"RECORD — {task0.reveal}\n\n"
                             "Write the full notebook now."
                         ),
@@ -127,12 +130,18 @@ def load_environment(
     num_train_streams: int = 200,
     num_eval_streams: int = 50,
     notebook_char_cap: int = NOTEBOOK_CHAR_CAP,
+    num_tasks: int = N_TASKS,
+    player_max_tokens: int = 400,
+    player_timeout: float = 120.0,
 ):
     player_model = player_model or os.environ.get("NANOLAB_PLAYER_MODEL", "fake")
     player_base_url = player_base_url or os.environ.get("NANOLAB_API_BASE_URL", "")
     key_var = player_key_var or os.environ.get("NANOLAB_API_KEY_VAR", "")
     api_key = os.environ.get(key_var, "") if key_var else ""
-    player = build_player(player_model, player_base_url, api_key)
+    player = build_player(
+        player_model, player_base_url, api_key,
+        max_tokens=player_max_tokens, timeout=player_timeout,
+    )
 
     async def lift(state) -> float:
         """Mean Player correctness on tasks 2..8 with notes minus without."""
@@ -164,7 +173,8 @@ def load_environment(
     return ScribeStreamEnv(
         player=player,
         notebook_char_cap=notebook_char_cap,
-        dataset=lambda: _build_dataset(num_train_streams, 0),
-        eval_dataset=lambda: _build_dataset(num_eval_streams, EVAL_SEED_BASE),
+        num_tasks=num_tasks,
+        dataset=lambda: _build_dataset(num_train_streams, 0, num_tasks),
+        eval_dataset=lambda: _build_dataset(num_eval_streams, EVAL_SEED_BASE, num_tasks),
         rubric=rubric,
     )

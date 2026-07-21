@@ -116,7 +116,13 @@ class ApiPlayer:
         return PlayResult(parsed == task["answer"], parsed, data["text"])
 
 
-def build_player(model: str, base_url: str = "", api_key: str = ""):
+def build_player(
+    model: str,
+    base_url: str = "",
+    api_key: str = "",
+    max_tokens: int = 400,
+    timeout: float = 120.0,
+):
     if model == "fake":
         return FakePlayer()
     if not base_url or not api_key:
@@ -124,4 +130,9 @@ def build_player(model: str, base_url: str = "", api_key: str = ""):
             "scribe-stream: a real player needs player_base_url and an API key "
             "(or use player_model='fake' for offline mechanics)"
         )
-    return ApiPlayer(model=model, base_url=base_url, api_key=api_key)
+    # a slow, locally-served Player (e.g. an adapter on MPS) needs a longer
+    # timeout than a hosted API; both are settable via env args
+    return ApiPlayer(
+        model=model, base_url=base_url, api_key=api_key,
+        max_tokens=max_tokens, timeout=timeout,
+    )

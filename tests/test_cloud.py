@@ -25,10 +25,23 @@ def test_kernel_script_and_metadata(monkeypatch):
     monkeypatch.setattr(cloud, "_username", lambda: "someone")
     script = cloud.build_kernel_script("configs/x.toml")
     assert "git clone" in script and "configs/x.toml" in script
-    assert "compare_adapter.py" in script and "nanolab-artifacts.zip" in script
+    assert "nanolab-artifacts.zip" in script
     meta = cloud.build_kernel_metadata("configs/x.toml")
     assert meta["id"] == "someone/nanolab-train-x"
     assert meta["enable_gpu"] == "true" and meta["enable_internet"] == "true"
+
+
+def test_kernel_script_is_env_aware():
+    """The kernel installs the right env and runs the exam only when one exists."""
+    gsm8k = cloud.build_kernel_script("configs/qwen3-0.6b-gsm8k.toml")
+    assert "prime env install primeintellect/gsm8k" in gsm8k
+    assert "compare_adapter.py" in gsm8k
+
+    scribe = cloud.build_kernel_script("configs/qwen3-0.6b-scribe.toml")
+    # in-repo env installs as an editable package, not via the Hub
+    assert "pip install -q -e environments/scribe_stream" in scribe
+    # no gsm8k exam for a non-gsm8k env — the verdict runs locally after pull
+    assert "compare_adapter.py" not in scribe
 
 
 def test_push_records_cloud_run(tmp_db, monkeypatch):
