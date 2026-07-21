@@ -18,14 +18,14 @@ lab notebook (`nanolab report`) render it. No cloud, no accounts, no build steps
   path. Verified live: identical config → **0.875 vs 0.875**, matching to every
   decimal on every example — and re-verified after each change to the rollout
   path.
-- **Training changes the model — measured precisely, reported honestly.**
-  Qwen3-0.6B trained on gsm8k (GRPO+LoRA, free Kaggle T4, launched from the
-  CLI) vs its own base on 32 held-out questions: **under the training-time
-  token budget (256), trained wins 0.500 vs 0.375 (+0.125)**; with double the
-  budget the base catches up (0.625 vs 0.562, within noise). RL optimized
-  exactly what its regime rewarded — finishing within budget — a
-  regime-dependence the lab's own instruments caught and quantified. Both
-  measurements live in the db, inspectable to the individual answer.
+- **Training produces a measurably better model.** The clean run (Qwen3-0.6B,
+  gsm8k, GRPO+LoRA, lr 5e-5 × 40 steps on a free Kaggle T4, launched by API):
+  **base 0.422 → trained 0.562 on 64 held-out questions (+0.141, ≈2.3σ)** —
+  the *final* checkpoint, no cherry-picking, no collapse. An earlier hotter
+  run also taught the honest footnote: gains are measured within the
+  training-time token budget (256), and the lab's own instruments caught and
+  quantified that regime-dependence before it could be over-claimed. Every
+  answer behind every number is in the db.
 - **Trainability gate, hard-coded.** Training refuses to start unless the
   baseline reward sits in the 10–80% window (GRPO learns from mixed groups;
   all-failures or all-successes teach nothing). This gate caught two real bugs

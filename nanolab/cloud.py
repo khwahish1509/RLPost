@@ -173,8 +173,9 @@ def poll_once() -> list[str]:
                     f"{', '.join(f'#{i}' for i in new_ids)}"
                 )
             except Exception as exc:
-                _set_status(ref, "error")
-                events.append(f"cloud run finished but merge failed: {exc}")
+                # transient (network) failures must NOT end the run's story —
+                # leave the row open so the next poll retries the pull
+                events.append(f"merge attempt failed, will retry: {exc}")
         elif s in ("error", "cancelacknowledged"):
             _set_status(ref, "error")
             events.append(f"cloud training failed on Kaggle: {ref}")

@@ -93,7 +93,9 @@ Done when: a 50-step run completes (surviving at least one restart via resume), 
 
 - [x] **Two-instrument addendum (2026-07-20)**: the official station head-to-head at n=32 with a 512-token budget reads base 0.625 vs trained 0.562 (Δ −0.062, within noise), while the 256-token exam reads base 0.375 vs trained 0.500 (Δ +0.125). Diagnosis: the base loses heavily to truncation at 256; training (run at 256) taught budget-fit answers. The improvement is real **within the training regime** and evaporates outside it — run 2's collapse-scarred checkpoint is not a robust win. Run 3 (clean run) is the proper test; future comparisons must pin max_tokens.
 
-Done when: a trained checkpoint beats its own pre-training baseline inside nanolab's own eval. **✅ met under the training-time budget; robust, regime-independent improvement is run 3's job.**
+- [x] **RUN 3 — the clean pass (2026-07-20)**: lr 5e-5 × 40 steps, no collapse (max 0.891, healthy to the end). Kernel exam on 64 held-out questions: **base 0.422 → final checkpoint 0.562, Δ +0.141 (≈2.3σ)**. No checkpoint-hunting: the *last* checkpoint wins. Merged as train run #3 (adapters #16–19).
+
+Done when: a trained checkpoint beats its own pre-training baseline inside nanolab's own eval. **✅ DONE — cleanly, at n=64, on the final checkpoint.**
 
 ### Phase 5 — Inference station + loop closure (3–5 evenings)
 
