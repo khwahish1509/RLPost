@@ -116,10 +116,16 @@ needed figure among one-off distractors (tagged `needed later` / `one-off`), and
 a tight notebook cap means copying everything overflows and truncates away what
 matters. That single change moves the prompted base model from **0.905 → Lift
 0.548** — into the trainable window: it blindly transcribes all the noise,
-overflows the cap, and drops needed figures. Keeping only the reused lines fits
-the budget and scores ~1.0, so there's ~0.45 of genuine headroom for GRPO to
-close. `configs/qwen3-0.6b-scribe.toml` trains on exactly this, with the offline
-fake Player (so it's $0 on a free Kaggle T4). That is the next run.
+overflows the cap, and drops needed figures.
+
+**And then training closed the gap.** GRPO+LoRA on this curriculum (free Kaggle
+T4) moved the reward from a 0.411 pre-flight to ~1.0 within ~13 steps and held
+it there. On **held-out** streams the trained Scribe scores **Lift 1.000 vs the
+untrained 0.548** — and the rollouts show *why*: it writes a 189-char notebook
+(under the 400 cap) with **zero distractor lines**, where the untrained model
+overflowed at 649 chars keeping 11 distractors and losing what mattered. A
+0.6B model, trained in this lab, learned to *select what's worth remembering* —
+and it generalizes to streams it never saw.
 
 ## Status
 
