@@ -120,8 +120,9 @@ overflows the cap, and drops needed figures.
 
 **And then training closed the gap.** GRPO+LoRA on this curriculum (free Kaggle
 T4) moved the reward from a 0.411 pre-flight to ~1.0 within ~13 steps and held
-it there. On **held-out** streams the trained Scribe scores **Lift 1.000 vs the
-untrained 0.548** — and the rollouts show *why*: it writes a 189-char notebook
+it there. On **held-out** streams the trained Scribe scores **Lift 1.000 —
+on all 12 of 12 streams, zero errors — vs the untrained ~0.55** (both sides
+measured twice). The rollouts show *why*: it writes a 189-char notebook
 (under the 400 cap) with **zero distractor lines**, where the untrained model
 overflowed at 649 chars keeping 11 distractors and losing what mattered. A
 0.6B model, trained in this lab, learned to *select what's worth remembering* —
