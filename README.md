@@ -128,6 +128,15 @@ overflowed at 649 chars keeping 11 distractors and losing what mattered. A
 0.6B model, trained in this lab, learned to *select what's worth remembering* —
 and it generalizes to streams it never saw.
 
+**And the skill transfers.** Tested across three drift rungs it never trained
+on (reuse hints removed · 5 distractors instead of 3 · 12 tasks instead of 8),
+the prompted base model degrades — 0.536 / 0.518 / 0.443 — while the trained
+Scribe holds **1.000 on every rung**, so the gap *widens* with distance
+(+0.46 → +0.56). The hints-removed rung is the decisive ablation: the Scribe
+filters junk by content, not by copying the training labels. Scope stated
+honestly: drift within the same task family, checker Player, n=8 per rung —
+every rollout in the db.
+
 ## Status
 
 v0.1.0-dev. Working and verified: environments, evals (+anchor), the trainer
