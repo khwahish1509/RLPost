@@ -1,6 +1,7 @@
 # The full RL product loop, self-hosted: how it actually works end to end
 
-*nanolab v0.1 — the story, with receipts.*
+*nanolab v0.2 — the story, with receipts. Part I is the loop; Part II is what
+it was built to reach: a small model trained to choose what to remember.*
 
 ## The premise
 
@@ -49,18 +50,24 @@ Three runs, three lessons — reported honestly:
 |---|---|---|---|
 | 1 | 1e-5 | 50 | Mechanically perfect, learned nothing measurable: AdamW moves weights ≈ lr per step, and 50×1e-5 can't flip a greedy answer. **Underdose.** |
 | 2 | 1e-4 | 100 | Reward climbed 0.156 → 0.875 by step ~17, plateaued, then **collapsed to 0.000** by step 99. Policy collapse from a hot lr. The *final* checkpoint scored 0.000 on the exam — but per-decade checkpoints preserved the peak. |
-| 3 | 5e-5 | 40 | The corrected dose, stopped before the collapse zone. |
+| 3 | 5e-5 | 40 | The corrected dose, stopped before the collapse zone. **Clean:** no collapse, and the *final* checkpoint beats base. |
 
-**The result that matters** (run 2's peak checkpoint, step 19, vs the
-untouched base — same 32 held-out questions, greedy decoding, same rubric):
+**The headline** (run 3, final checkpoint, 64 held-out questions, greedy,
+measured inside the training kernel's own exam):
 
 ```
-base            12/32 correct   (0.375)
-trained          16/32 correct  (0.500)    Δ +0.125
+base            0.422
+trained         0.562     Δ +0.141  (≈2.3σ)
 ```
 
-The lesson worth a highlight: **final ≠ best. Checkpoint every few steps and
-exam the checkpoints, not the survivor.**
+Two lessons worth highlighting. First, from run 2: **final ≠ best** — its
+final checkpoint scored 0.000 after collapse while its step-19 peak scored
+0.500 vs base 0.375; checkpoint every few steps and exam the checkpoints, not
+the survivor. Second, from the lab's own instruments: the gain is strongest
+inside the training-time token budget — with a doubled budget the base reads
+0.625 at the station. The improvement is real *within its regime*, and the
+instruments caught the regime before it could be over-claimed. Pin your
+budgets across comparisons.
 
 ## Station 4: Serving — the loop closes on a laptop
 
@@ -71,20 +78,75 @@ live local endpoint, which means the eval station can measure the lab's own
 product: `nanolab eval run gsm8k -m Qwen/Qwen3-0.6B:7`. All five stations,
 one machine.
 
-## The memory experiment — learning that lives in text
+## Part II — the memory experiment: learning that lives in text
 
 Weights are one place learning can live; **context is the other**. The
 `scribe-stream` environment isolates it: a frozen, amnesiac Player solves
 task chains where later tasks need figures revealed earlier; the model under
 test (the *Scribe*) can do exactly one thing — rewrite a capped notebook
 between tasks. Reward = **Lift**: Player's score with the notebook minus
-without.
+without. Anti-cheat trio: the cap kills log-dumping, held-out stream seeds
+kill memorizing, the frozen Player kills "the model just got better."
 
-Measured, with a prompted frontier model as the Scribe, on 10 held-out
-streams: **Player alone 0.0% → with notebook 85.7%**. The notebook is the
-only bridge across time, so the entire gap is attributable to the notes.
-The next experiment (S2) trains a small model to *be* the Scribe — GRPO
-where the reward is Lift — using this same trainer.
+**Signal exists (S1).** With a prompted frontier model as the Scribe, on 10
+held-out streams: Player alone 0.0% → with notebook 85.7% (eval #5). The
+notebook is the only bridge across time, so the whole gap is the notes.
+
+**An honest failure, caught by the gate.** Training a small Scribe was next —
+and the baseline measurement stopped it. An *untrained* Qwen3-0.6B already
+scored Lift 0.905 against the checker (eval #16) **and 0.905 against a real
+grok reader** (eval #17), matching the frontier Scribe. On those streams
+note-taking reduces to transcription, which the base model had already
+mastered; doubling the horizon to 16 tasks changed nothing. The trainability
+gate refused to train. Correctly. There was no skill to teach.
+
+**So the task was rebuilt to demand judgment.** Each record now buries the
+needed figure among one-off distractor figures, under a binding 400-character
+notebook cap: copy everything and you overflow, and truncation eats the
+figures you needed. That single change dropped the untrained baseline to
+**0.548** (eval #22) — inside the 10–80% window where a reward signal exists.
+The rollout shows the mechanism: the base model transcribes all the noise
+(649 chars, 11 junk lines) and loses what mattered.
+
+**Training closed the gap (S2).** GRPO on the multi-turn path — the policy
+served to the same anchored rollout engine, per-turn pairs through the same
+loss — on a free Kaggle T4. Pre-flight 0.411; the curve saturates near 1.0 by
+step 13 and holds, no collapse (the kernel hit Kaggle's 12-hour wall near
+step 35; its per-decade checkpoints were recovered from the committed working
+directory — checkpoint discipline paying out again). On held-out streams the
+trained Scribe scores **Lift 1.000 — 12 of 12 streams, zero errors (eval
+#24)** vs the untrained 0.548. Its final notebook: 189 characters, zero
+distractor lines.
+
+**The skill transfers.** Three drift rungs it never trained on, prompted vs
+trained, server identity verified before every eval:
+
+| rung | prompted | trained |
+|---|---|---|
+| hints removed | 0.536 (#28) | **1.000** (#25) |
+| 5 distractors, trained on 3 | 0.518 (#29) | **1.000** (#26) |
+| 12 tasks, trained on 8 | 0.443 (#30) | **1.000** (#27) |
+
+The prompted model degrades with distance; the trained one holds, so the gap
+*widens* (+0.46 → +0.56). The hints-removed rung is the decisive ablation:
+without the labels it trained with, the Scribe still filters junk by content
+— it learned selection, not label-copying. Scope, stated honestly: drift
+within one task family, checker Player, n=8 per rung; a different task family
+entirely is the untested fourth rung.
+
+**Where the improvement lives.** The four-column instrument, all four columns
+produced on one laptop (Player served locally): base 0.000 · +context +0.393
+· +weights +0.000 · +both +0.429 (evals #19, #21). A gsm8k-trained adapter
+with an empty notebook still scores zero — no arithmetic skill invents a
+figure it was never shown. **KNOWLEDGE-DOMINANT: the notebook carries almost
+everything; the weights alone carry nothing.** That is, in one table, why
+memory matters.
+
+One more receipt from this phase: a first "prompted" transfer ladder scored
+an impossible 1.000 everywhere — traced to a supposedly-stopped server still
+answering on the old port, so the "base" evals had silently measured the
+trained model. The rows were deleted and re-run with an identity check before
+every eval. The discipline of distrusting your own good news is the product.
 
 ## What made it work at $0
 
@@ -99,4 +161,13 @@ at every single decision point.
 
 One SQLite file holds every eval sample, reward curve, adapter, deployment
 and API token spent. The web UI and CLI read the same rows, so they cannot
-disagree. Nothing in this writeup is a claim without a row behind it.
+disagree. As of v0.2 the UI renders this story as a living paper — every
+number above wears a footnote mark that opens the raw rollout rows behind it.
+Nothing in this writeup is a claim without a row behind it.
+
+## What v0.2 is, in one sentence
+
+A self-hosted laboratory that trains AI models and proves the training worked
+— and its flagship experiment taught a tiny model the skill of choosing what
+to remember, showed the skill transfers under drift, and kept the receipts
+for every step, including its own false starts.

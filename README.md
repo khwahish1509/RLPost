@@ -139,11 +139,16 @@ every rollout in the db.
 
 ## Status
 
-v0.1.0-dev. Working and verified: environments, evals (+anchor), the trainer
-(mechanically proven; first score-moving run in progress), serving code, the
-Scribe environment (S1 passed), the web app, 52 tests, CI. Remaining for
-v0.1.0: a training run that beats its baseline on the held-out exam, and the
-live served-adapter loop closure.
+**v0.2.0 — the research arc is complete.** Every question the lab was built
+to answer is answered, with db rows behind each number: the loop improves a
+model's weights (gsm8k +0.141 at n=64, final checkpoint); memory carries
+signal (Lift 0.857); the note-taking skill is trainable (0.548 → 1.000 on
+12/12 held-out streams); the skill transfers under drift (perfect across
+three rungs while the prompted baseline decays); and the four-column
+instrument attributes the gain (KNOWLEDGE-DOMINANT). The web app renders it
+all as a living paper — every number opens its raw rollouts. 87 tests, CI.
+Full story: [docs/writeup.md](docs/writeup.md). Next (v0.3): the interactive
+Memory Agent — chat where the trained Scribe maintains the notebook live.
 
 ## Layout
 
