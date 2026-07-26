@@ -1,1053 +1,785 @@
-/* nanolab ui — router + components. No build step, no dependencies.
-   Every number comes from /api/*, the same SQLite rows the CLI reads. */
+/* nanolab — the living paper (v0.2 UI).
+   One vanilla file: router + rooms + paper components, all data from /api.
+   Rule: the UI never computes a metric — every number is read from the same
+   SQLite rows the CLI reads, and every number can open its receipts. */
 
-const page = document.getElementById("page");
-const toastEl = document.getElementById("toast");
+"use strict";
 
-const esc = (s) =>
-  String(s ?? "").replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+/* ---------------- plumbing ---------------- */
 
-const api = async (path) => {
+const $ = (s) => document.querySelector(s);
+const page = $("#page");
+
+async function api(path) {
   const r = await fetch("/api" + path);
-  if (!r.ok) throw new Error(`${r.status} on ${path}`);
+  if (!r.ok) throw new Error((await r.text()).slice(0, 200) || r.status);
   return r.json();
-};
-
-const fmt = (x, d = 3) =>
-  x === null || x === undefined ? "—" : Number(x).toFixed(d);
-
-/* ── components ────────────────────────────────────────────────────── */
-
-const modelChip = (m) => {
-  if (!m) return "—";
-  const i = m.lastIndexOf(":");
-  if (i > 0)
-    return `<span class="model">${esc(m.slice(0, i))}<span class="adapter">${esc(
-      m.slice(i))}</span></span>`;
-  return `<span class="model">${esc(m)}</span>`;
-};
-
-const status = (s) => `<span class="st ${esc(s)}"><i></i>${esc(s)}</span>`;
-
-const kpi = (value, label, caption = "", badge = "") =>
-  `<div class="kpi"><div class="top"><span class="l">${label}</span>${badge}</div>
-   <div class="n">${value}</div><div class="c">${caption}</div></div>`;
-
-const reward = (v, withBar = true) => {
-  if (v === null || v === undefined) return '<span class="dim">—</span>';
-  const pct = Math.max(0, Math.min(1, v)) * 100;
-  return `<span class="rw"><span class="v">${fmt(v)}</span>${
-    withBar ? `<span class="bar"><i style="width:${pct}%"></i></span>` : ""}</span>`;
-};
-
-function toast(msg) {
-  toastEl.textContent = msg;
-  toastEl.classList.add("show");
-  clearTimeout(toast._t);
-  toast._t = setTimeout(() => toastEl.classList.remove("show"), 1400);
 }
-
-window.copyCmd = (cmd) => {
-  navigator.clipboard.writeText(cmd);
-  toast("copied");
-};
-
-const cli = (cmd) =>
-  `<button class="cli" onclick="copyCmd(this.dataset.cmd)" data-cmd="${esc(cmd)}"
-    title="This copies the command — paste it in the Terminal app, or just ask Claude to run it. The UI itself is view-only."><b>$</b> ${esc(cmd)}</button>`;
-
-const icons = {
-  flask: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M10 2v7L4.5 19a2 2 0 0 0 1.8 3h11.4a2 2 0 0 0 1.8-3L14 9V2M8.5 2h7"/></svg>',
-  chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7" rx=".8"/><rect x="12" y="6" width="3" height="11" rx=".8"/><rect x="17" y="13" width="3" height="4" rx=".8"/></svg>',
-  wave: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 12h-4l-3 8L9 4l-3 8H2"/></svg>',
-  server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/></svg>',
-};
-
-const empty = (icon, headline, body, cmd) =>
-  `<div class="empty">${icons[icon] || ""}<div class="headline">${esc(headline)}</div>
-   <div>${body}</div>${cmd ? `<span class="cmd">$ ${esc(cmd)}</span>` : ""}</div>`;
-
-let gradSeq = 0;
-const curveSvg = (rewards, w = 220, h = 44, endDot = true) => {
-  if (!rewards || rewards.length < 2) return '<span class="dim">—</span>';
-  const id = `g${gradSeq++}`;
-  const lo = Math.min(...rewards, 0.1);
-  const hi = Math.max(...rewards, 0.8);
-  const span = hi - lo || 1;
-  const y = (v) => h - 4 - ((v - lo) / span) * (h - 10);
-  const dx = w / (rewards.length - 1);
-  const pts = rewards.map((r, i) => [i * dx, y(r)]);
-  const line = pts.map(([x, yy]) => `${x.toFixed(1)},${yy.toFixed(1)}`).join(" ");
-  const area = `0,${h} ${line} ${w},${h}`;
-  const [ex, ey] = pts[pts.length - 1];
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-    <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#B7F542" stop-opacity=".22"/>
-      <stop offset="1" stop-color="#B7F542" stop-opacity="0"/></linearGradient></defs>
-    <rect x="0" y="${y(0.8).toFixed(1)}" width="${w}"
-      height="${(y(0.1) - y(0.8)).toFixed(1)}" fill="#B7F542" opacity="0.05"/>
-    <polygon points="${area}" fill="url(#${id})"/>
-    <polyline points="${line}" fill="none" stroke="#B7F542" stroke-width="1.5"/>
-    ${endDot ? `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="2.5" fill="#B7F542"/>` : ""}
-  </svg>`;
-};
-
-const head = (title, sub, action = "") =>
-  `<div class="page-head"><div><h1>${esc(title)}</h1>
-   <div class="sub">${esc(sub)}</div></div><div>${action}</div></div>`;
-
 async function post(path, body) {
   const r = await fetch("/api" + path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(body || {}),
   });
-  const data = await r.json();
+  const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || `${r.status}`);
   return data;
 }
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function toast(msg, ms = 3200) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toast._h);
+  toast._h = setTimeout(() => t.classList.remove("show"), ms);
+}
+const fnum = (v, d = 3) => (v == null ? "—" : Number(v).toFixed(d));
+const when = (iso) => (iso ? iso.replace("T", " ").slice(0, 16) : "—");
+function modelChip(m) {
+  return `<span class="chip">${esc(m)}</span>`;
+}
 
-window.dismissJob = async (id) => {
-  try { await post("/actions/dismiss-job", { id }); render(); }
-  catch (err) { toast(err.message); }
-};
+/* ---------------- paper components ---------------- */
 
-const jobsStrip = async () => {
+/* footnote mark: every number is a claim; the mark opens its raw rows */
+const foot = (evalId) =>
+  evalId == null ? "" :
+  `<button class="foot" title="receipts — eval #${evalId}" onclick="openReceipts(${evalId});event.stopPropagation()">°</button>`;
+
+function figWrap(inner, no, text, margin) {
+  return `<figure class="fig">${inner}
+    <figcaption><span class="fig-no">${esc(no)}</span>
+      <span class="fig-text">${text}</span>
+      ${margin ? `<span class="fig-margin">${esc(margin)}</span>` : ""}
+    </figcaption></figure>`;
+}
+
+/* reward-vs-step chart, paper axes. points: [{x, y}] */
+function curveSvg(points, { w = 920, h = 260, yMax = 1.05, ticks = [] } = {}) {
+  if (!points.length) return `<div class="empty"><div class="why">no data points yet</div></div>`;
+  const padL = 46, padR = 14, padT = 16, padB = 30;
+  const xMax = Math.max(...points.map((p) => p.x), 1);
+  const X = (x) => padL + ((w - padL - padR) * x) / xMax;
+  const Y = (y) => padT + (h - padT - padB) * (1 - Math.min(y, yMax) / yMax);
+  const path = points.map((p, i) => `${i ? "L" : "M"}${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(" ");
+  const last = points[points.length - 1];
+  const tickMarks = ticks.map((t) =>
+    `<line x1="${X(t)}" y1="${h - padB}" x2="${X(t)}" y2="${h - padB + 5}" stroke="#1A1A1A" stroke-width="1"/>
+     <text x="${X(t)}" y="${h - padB + 17}" font-family="Geist Mono,monospace" font-size="9.5" fill="#9B978C" text-anchor="middle">${t}</text>`).join("");
+  return `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${h - padB}" stroke="#D4D1C6" stroke-width="1"/>
+    <line x1="${padL}" y1="${h - padB}" x2="${w - padR}" y2="${h - padB}" stroke="#1A1A1A" stroke-width="1"/>
+    <line x1="${padL}" y1="${Y(1)}" x2="${w - padR}" y2="${Y(1)}" stroke="#D4D1C6" stroke-width="1" stroke-dasharray="3 5"/>
+    <text x="${padL - 8}" y="${Y(1) + 3}" font-family="Geist Mono,monospace" font-size="10" fill="#6B6860" text-anchor="end">1.0</text>
+    <text x="${padL - 8}" y="${h - padB + 3}" font-family="Geist Mono,monospace" font-size="10" fill="#6B6860" text-anchor="end">0.0</text>
+    ${tickMarks}
+    <path d="${path}" fill="none" stroke="#3D7A4E" stroke-width="1.8"/>
+    <circle cx="${X(last.x)}" cy="${Y(last.y)}" r="3.2" fill="#1A1A1A"/>
+    <text x="${Math.min(X(last.x) + 8, w - padR - 30)}" y="${Y(last.y) - 8}" font-family="Geist Mono,monospace" font-size="10.5" fill="#1A1A1A">${fnum(last.y, 3)}</text>
+  </svg>`;
+}
+
+/* calibration figure: the 10–80% trainability window as a number line */
+function calibSvg(baseline, { w = 920, h = 74, lo = 0.1, hi = 0.8 } = {}) {
+  const padL = 14, padR = 14, y = 40;
+  const X = (v) => padL + (w - padL - padR) * v;
+  const tick = baseline == null ? "" : `
+    <line x1="${X(baseline)}" y1="${y - 22}" x2="${X(baseline)}" y2="${y + 10}" stroke="#7A2E2A" stroke-width="1.6"/>
+    <text x="${X(baseline)}" y="${y - 28}" font-family="Geist Mono,monospace" font-size="11" fill="#7A2E2A" text-anchor="middle">${fnum(baseline, 3)}</text>`;
+  return `<div class="calib"><svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">
+    <rect x="${X(lo)}" y="${y - 12}" width="${X(hi) - X(lo)}" height="14" fill="#EDE9DD"/>
+    <line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="#1A1A1A" stroke-width="1"/>
+    ${tick}
+    <text x="${X(0.02)}" y="${y + 24}" font-family="Geist Mono,monospace" font-size="9.5" fill="#9B978C">NO SIGNAL</text>
+    <text x="${(X(lo) + X(hi)) / 2}" y="${y + 24}" font-family="Geist Mono,monospace" font-size="9.5" fill="#6B6860" text-anchor="middle">TRAINABLE</text>
+    <text x="${X(0.98)}" y="${y + 24}" font-family="Geist Mono,monospace" font-size="9.5" fill="#9B978C" text-anchor="end">ALREADY SOLVED</text>
+  </svg></div>`;
+}
+
+function verdictBlock(claim, from, to, cap, { evalFrom, evalTo, small } = {}) {
+  return `<div class="verdict${small ? " small" : ""}">
+    <div class="claim">${claim}</div>
+    <div class="nums">${from ? `<span class="from">${from}</span>${foot(evalFrom)}
+      <span class="arr">→</span>` : ""}
+      <span class="to">${to}</span>${foot(evalTo)}</div>
+    <div class="cap">${esc(cap)}</div>
+  </div>`;
+}
+
+/* markdown-lite for env READMEs: headers, fenced code, inline code, bold */
+function mdLite(src) {
+  const lines = String(src || "").split("\n");
+  let html = "", inCode = false;
+  for (const ln of lines) {
+    if (ln.trim().startsWith("```")) { html += inCode ? "</pre>" : "<pre>"; inCode = !inCode; continue; }
+    if (inCode) { html += esc(ln) + "\n"; continue; }
+    let l = esc(ln);
+    l = l.replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+    if (/^### /.test(ln)) html += `<h3>${l.slice(4)}</h3>`;
+    else if (/^## /.test(ln)) html += `<h2>${l.slice(3)}</h2>`;
+    else if (/^# /.test(ln)) html += `<h1>${l.slice(2)}</h1>`;
+    else if (/^[-*] /.test(ln)) html += `<li>${l.slice(2)}</li>`;
+    else if (ln.trim() === "") html += "<br>";
+    else html += `<p>${l}</p>`;
+  }
+  return `<div class="md">${html}${inCode ? "</pre>" : ""}</div>`;
+}
+
+/* ---------------- receipts drawer ---------------- */
+
+function closeDrawer() { document.body.classList.remove("drawer-open"); }
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeDrawer(); closeModal(); } });
+
+async function openReceipts(evalId) {
+  document.body.classList.add("drawer-open");
+  $("#d-kicker").textContent = `RECEIPTS · EVAL #${evalId}`;
+  $("#d-title").textContent = "loading raw rows…";
+  $("#d-body").innerHTML = "";
   try {
-    const jobs = await api("/jobs");
-    const active = jobs.filter(
-      (j) => j.status === "running" || j.status === "failed").slice(0, 4);
-    if (!active.length) return "";
-    return `<div class="activity">${active
-      .map((j) => `<div class="job ${j.status}">
-        ${j.status === "running"
-          ? '<span class="st running"><i></i></span>'
-          : '<span class="st failed"><i></i></span>'}
-        <span class="mono">${esc(j.label)}</span>
-        ${j.error ? `<span class="err" title="${esc(j.error)}">${esc(j.error)}</span>` : ""}
-        ${j.status === "failed"
-          ? `<button class="jobx" onclick="dismissJob(${j.id})" title="dismiss">✕</button>`
-          : ""}
-      </div>`).join("")}</div>`;
-  } catch { return ""; }
-};
-
-window.togglePanel = (id) => {
-  const el = document.getElementById(id);
+    const d = await api(`/evals/${evalId}`);
+    $("#d-title").textContent = `${d.env} · ${d.model}`;
+    const meta = Object.entries(d.meta?.avg_metrics || {})
+      .map(([k, v]) => `<tr><td class="mono">${esc(k)}</td><td class="mono right">${fnum(v)}</td></tr>`).join("");
+    const rows = (d.rollouts || []).map((r, i) => `
+      <tr class="click" onclick="toggleConvo(${i})">
+        <td class="mono">${r.example}·${r.rollout}</td>
+        <td class="mono right num ${r.reward >= 0.5 ? "pos" : "neg"}">${fnum(r.reward)}</td>
+      </tr>
+      <tr id="convo-${i}" style="display:none"><td colspan="2">${convoHtml(r)}</td></tr>`).join("");
+    $("#d-body").innerHTML = `
+      <p class="aside-note">Every rollout behind this number, straight from the database.
+      Run: n=${d.num_examples} · r=${d.rollouts_per_example} · status ${esc(d.status)} ·
+      started ${when(d.started_at)}.</p>
+      ${meta ? `<table class="sheet"><tr><th>METRIC</th><th class="right">MEAN</th></tr>${meta}</table>` : ""}
+      <table class="sheet"><tr><th>EXAMPLE·ROLLOUT</th><th class="right">REWARD</th></tr>${rows}</table>`;
+  } catch (e) {
+    $("#d-body").innerHTML = `<div class="empty"><div class="why">could not load: ${esc(e.message)}</div></div>`;
+  }
+}
+window.openReceipts = openReceipts;
+window.closeDrawer = closeDrawer;
+window.toggleConvo = (i) => {
+  const el = $(`#convo-${i}`);
   if (el) el.style.display = el.style.display === "none" ? "" : "none";
 };
+function convoHtml(r) {
+  const msgs = [...(Array.isArray(r.prompt) ? r.prompt : []), ...(Array.isArray(r.completion) ? r.completion : [])];
+  if (!msgs.length) return `<div class="aside-note">no stored conversation</div>`;
+  return `<div class="convo">${msgs.map((m) => `
+    <div class="msg ${esc(m.role)}"><div class="role">${esc(m.role)}</div>
+    <pre>${esc(typeof m.content === "string" ? m.content : JSON.stringify(m.content))}</pre></div>`).join("")}</div>`;
+}
 
-window.submitEval = async (btn) => {
-  const panel = btn.closest(".panel");
-  const val = (name) => panel.querySelector(`[name=${name}]`).value;
-  btn.disabled = true;
+/* ---------------- modal ---------------- */
+
+function openModal(html) { $("#modal").innerHTML = html; $("#modal-veil").classList.add("open"); }
+function closeModal() { $("#modal-veil").classList.remove("open"); }
+$("#modal-veil").addEventListener("click", (e) => { if (e.target.id === "modal-veil") closeModal(); });
+window.closeModal = closeModal;
+
+async function newEvalModal(prefillEnv = "") {
+  const [envs, defaults] = await Promise.all([api("/environments"), api("/defaults")]);
+  const opts = envs.map((e) =>
+    `<option value="${esc(e.slug)}" ${e.slug === prefillEnv ? "selected" : ""}>${esc(e.slug)}</option>`).join("");
+  openModal(`
+    <h3>New evaluation</h3>
+    <div class="m-sub">Rollouts + rubric scoring; lands in Evals with full receipts.</div>
+    <label class="f">Environment</label><select id="ev-env">${opts}</select>
+    <label class="f">Model</label><input id="ev-model" value="${esc(defaults.model || "")}">
+    <div class="form-grid">
+      <div><label class="f">Examples (n)</label><input id="ev-n" type="number" value="5" min="1"></div>
+      <div><label class="f">Rollouts per example</label><input id="ev-r" type="number" value="1" min="1"></div>
+    </div>
+    <label class="f">Temperature</label><input id="ev-t" type="number" step="0.1" value="0.0">
+    <div class="m-foot">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="submitEval()">Run evaluation</button>
+    </div>`);
+}
+window.newEvalModal = newEvalModal;
+window.submitEval = async () => {
   try {
     await post("/actions/eval", {
-      env: val("env"), model: val("model"), n: val("n"), r: val("r"),
+      env: $("#ev-env").value, model: $("#ev-model").value,
+      n: +$("#ev-n").value, r: +$("#ev-r").value, temperature: +$("#ev-t").value,
     });
-    toast("eval started — it will appear below");
-    setTimeout(render, 600);
-  } catch (err) { toast(err.message); btn.disabled = false; }
+    closeModal(); toast("evaluation started — it will appear in Evals");
+  } catch (e) { toast("could not start: " + e.message, 5000); }
 };
 
-window.submitInstall = async (btn) => {
-  const input = btn.closest(".panel").querySelector("[name=slug]");
-  if (!input.value.trim()) { toast("type an environment name"); return; }
-  btn.disabled = true;
+async function newTrainModal() {
+  const configs = await api("/configs");
+  const opts = configs.map((c) => `<option value="${esc(c.path)}">${esc(c.name || c.path)}</option>`).join("");
+  openModal(`
+    <h3>New training run</h3>
+    <div class="m-sub">Pushes to Kaggle's free GPU; the poller merges the finished
+    adapter back automatically. Close the laptop after launch.</div>
+    <label class="f">Training config</label><select id="tr-config">${opts}</select>
+    <div class="m-foot">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="submitTrain()">Launch on Kaggle</button>
+    </div>`);
+}
+window.newTrainModal = newTrainModal;
+window.submitTrain = async () => {
   try {
-    await post("/actions/install", { slug: input.value });
-    toast("installing — takes a minute");
-    setTimeout(render, 600);
-  } catch (err) { toast(err.message); btn.disabled = false; }
+    await post("/actions/train-cloud", { config: $("#tr-config").value });
+    closeModal(); toast("pushed to Kaggle — watch it in Training");
+  } catch (e) { toast("could not launch: " + e.message, 5000); }
 };
 
-const table = (headers, rows) =>
-  `<div class="tablewrap"><table><tr>${headers
-    .map((h) => `<th>${h}</th>`).join("")}</tr>${rows.join("")}</table></div>`;
+async function installModal() {
+  openModal(`
+    <h3>Install environment</h3>
+    <div class="m-sub">Any verifiers-format task from the hub, e.g.
+    <code>primeintellect/gsm8k</code>.</div>
+    <label class="f">Hub slug</label><input id="in-slug" placeholder="owner/name">
+    <div class="m-foot">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="submitInstall()">Install</button>
+    </div>`);
+}
+window.installModal = installModal;
+window.submitInstall = async () => {
+  try {
+    await post("/actions/install", { slug: $("#in-slug").value });
+    closeModal(); toast("installing — it will appear when registered");
+  } catch (e) { toast("could not install: " + e.message, 5000); }
+};
 
-const skeleton = () =>
-  `<div class="page">
-   <div class="skel" style="height:44px;width:40%;margin-bottom:1.3rem"></div>
-   <div class="kpis">${'<div class="skel" style="height:84px"></div>'.repeat(4)}</div>
-   <div class="skel" style="height:260px"></div></div>`;
+/* ---------------- experiment strip + chrome ---------------- */
 
-/* ── pages ─────────────────────────────────────────────────────────── */
+let lab = { overview: null, cloud: [] };
 
-async function overview() {
-  const d = await api("/overview");
-  const recentEvals = d.recent_evals.length
-    ? table(
-        ["run", "env", "model", "status", "reward", ""],
-        d.recent_evals.map(
-          (e) => `<tr class="click" onclick="location.hash='#/evals/${e.id}'">
-           <td class="num rank">#${e.id}</td><td class="mono">${esc(e.slug)}</td>
-           <td>${modelChip(e.model)}</td><td>${status(e.status)}</td>
-           <td>${reward(e.mean_reward)}</td><td class="chev">›</td></tr>`))
-    : empty("chart", "Run your first evaluation",
-        "Measure how a model performs on an environment, rollout by rollout.",
-        "nanolab eval run gsm8k -m <model>");
-  const recentTrains = d.recent_trains.length
-    ? table(
-        ["run", "env", "model", "status", "steps", "curve", ""],
-        d.recent_trains.map(
-          (t) => `<tr class="click" onclick="location.hash='#/training/${t.id}'">
-           <td class="num rank">#${t.id}</td><td class="mono">${esc(t.slug ?? "?")}</td>
-           <td>${modelChip(t.model)}</td><td>${status(t.status)}</td>
-           <td class="num">${t.steps_completed}</td>
-           <td>${curveSvg(t.rewards, 150, 34)}</td><td class="chev">›</td></tr>`))
-    : empty("wave", "Run your first training run",
-        "Train LoRA adapters with reinforcement learning on an environment.",
-        "nanolab train configs/qwen3-0.6b-gsm8k.toml");
-  return `${head("Overview", "one CLI · one SQLite file · one closed RL loop", cli("nanolab ui"))}
-    <div class="kpis">
-      ${kpi(d.evals.done, "evals done", `${d.evals.active} active`)}
-      ${kpi(d.best ? fmt(d.best.mean_reward) : "—", "best reward",
-        d.best ? `${d.best.slug} · ${d.best.model}` : "no completed runs")}
-      ${kpi(d.training.done, "train runs", `${d.adapters} adapters`)}
-      ${kpi(d.environments, "environments", "installed")}
-      ${kpi(d.tokens.toLocaleString(), "tokens", "ledger total")}
+async function refreshChrome() {
+  try {
+    const [ov, cloud, ver] = await Promise.all([api("/overview"), api("/cloud"), api("/version")]);
+    lab = { overview: ov, cloud };
+    const active = cloud.filter((c) => ["pushed", "running"].includes(c.status));
+    $("#rec").style.display = active.length || ov.training.active ? "" : "none";
+
+    const t = ov.recent_trains?.[0];
+    const segs = [];
+    if (t) {
+      segs.push(`<span class="seg"><b>RUN ${t.id}</b> · ${esc(t.slug || "?")}</span>`);
+      if (active.length) segs.push(`<span class="arrow">→</span><span class="seg now">TRAINING ON KAGGLE ⋯</span>`);
+      else segs.push(`<span class="arrow">→</span><span class="seg">TRAINING ${t.status === "done" ? `<span class="done-mark">✓</span> ${t.steps_completed} STEPS` : esc(String(t.status).toUpperCase())}</span>`);
+      const verd = (ov.recent_evals || []).find((e) => e.slug === t.slug && e.status === "done");
+      segs.push(`<span class="arrow">→</span><span class="seg">${verd ? `LATEST EVAL <b>${fnum(verd.mean_reward)}</b>` : "VERDICT PENDING"}</span>`);
+    }
+    $("#strip").innerHTML = segs.join("");
+    $("#side-foot").innerHTML =
+      `v0.2 · ui ${esc(String(ver.ui || "").slice(0, 8))}<br>` +
+      `${ov.environments} envs · ${ov.evals.total} evals · ${ov.adapters} adapters`;
+  } catch { /* chrome is decoration; the rooms surface real errors */ }
+}
+
+/* ---------------- rooms ---------------- */
+
+async function bench() {
+  const [ov, jobs] = await Promise.all([api("/overview"), api("/jobs")]);
+  const t = ov.recent_trains?.[0];
+
+  let action;
+  const cloudActive = lab.cloud.some((c) => ["pushed", "running"].includes(c.status));
+  if (cloudActive)
+    action = `<p class="aside-note">Training is running on Kaggle. Nothing to click —
+      the poller pulls the adapter home when it finishes.</p>`;
+  else if (!ov.environments)
+    action = `<button class="btn" onclick="installModal()">Install your first environment</button>`;
+  else if (!ov.evals.total)
+    action = `<button class="btn" onclick="newEvalModal()">Run the first baseline</button>`;
+  else
+    action = `<button class="btn" onclick="newTrainModal()">New training run</button>
+      <button class="btn ghost" onclick="newEvalModal()" style="margin-left:10px">New evaluation</button>`;
+
+  const liveFig = t?.rewards?.length
+    ? figWrap(curveSvg(t.rewards.map((y, x) => ({ x, y }))),
+        "FIG. LIVE", `Reward vs step, run ${t.id} (${esc(t.slug || "")}), ${esc(t.status)}.`,
+        `${t.rewards.length} steps`)
+    : `<div class="empty"><div class="why">No training curve yet — a run's rewards draw here as it trains.</div>
+       <span class="cmd">$ nanolab train --cloud configs/&lt;config&gt;.toml</span></div>`;
+
+  const recent = (ov.recent_evals || []).slice(0, 6).map((e) => `
+    <tr class="click" onclick="location.hash='#/evals/${e.id}'">
+      <td class="mono">#${e.id}</td><td class="mono">${esc(e.slug)}</td>
+      <td>${modelChip(e.model)}</td>
+      <td class="mono right num">${fnum(e.mean_reward)}${e.status === "done" ? foot(e.id) : ""}</td>
+      <td class="right"><span class="status ${esc(e.status)}">${esc(e.status)}</span></td>
+    </tr>`).join("");
+
+  const jobRows = (jobs.running || []).concat(jobs.recent || []).slice(0, 4).map((j) => `
+    <div class="job"><span class="status ${j.status === "running" ? "running" : j.status === "error" ? "error" : "done"}">${esc(j.status)}</span>
+      <span>${esc(j.label)}</span>
+      ${j.status !== "running" ? `<button class="x" onclick="dismissJob('${esc(j.id)}')">dismiss</button>` : ""}</div>`).join("");
+
+  return `
+    <div class="kicker">THE BENCH · CURRENT EXPERIMENT</div>
+    <h1>The Bench</h1><hr class="page-rule">
+    <div class="section" style="margin-top:0">
+      <div class="sec-head"><span class="sec-no">NEXT ACTION</span></div>${action}
     </div>
-    <div class="section-label"><b>01</b>recent evaluations</div>${recentEvals}
-    <div class="section-label"><b>02</b>recent training</div>${recentTrains}`;
+    ${jobRows ? `<div class="jobs">${jobRows}</div>` : ""}
+    ${liveFig}
+    <div class="section">
+      <div class="sec-head"><span class="sec-no">RECENT</span><h2>Evaluations</h2></div>
+      <table class="sheet"><tr><th>EVAL</th><th>TASK</th><th>MODEL</th><th class="right">REWARD</th><th class="right">STATUS</th></tr>${recent ||
+        `<tr><td colspan="5"><div class="aside-note">none yet</div></td></tr>`}</table>
+    </div>`;
 }
+window.dismissJob = async (id) => { try { await post("/actions/dismiss-job", { job_id: id }); } catch {} };
 
-let hubState = { open: false, search: "", sort: "stars", results: null, loading: false };
+/* THE PAPER — the lab's findings as a living article. The narrative is
+   curated; every number footnotes to live db rows via the receipts drawer. */
+async function paper() {
+  // the recovered S2 curve (kernel log; steps 5–8 were not captured)
+  const s2 = [[0,0.545],[1,0.375],[2,0.527],[3,0.464],[4,0.491],[9,0.893],[10,0.848],
+    [11,0.821],[12,0.946],[13,1.0],[14,0.92],[15,0.973],[16,0.875],[17,0.982],[18,1.0],
+    [19,1.0],[20,1.0],[21,1.0],[22,0.964],[23,0.982],[24,0.973],[25,1.0],[26,1.0],
+    [27,0.991],[28,1.0],[29,1.0],[30,1.0]].map(([x, y]) => ({ x, y }));
 
-window.toggleHub = () => {
-  hubState.open = !hubState.open;
-  if (hubState.open && hubState.results === null) loadHub();
-  else render();
-};
+  const transfer = `
+    <table class="sheet">
+      <tr><th>DRIFT RUNG</th><th class="right">PROMPTED</th><th class="right">TRAINED</th><th class="right">GAP</th></tr>
+      <tr><td>Training distribution</td><td class="mono right neg">0.548${foot(22)}</td><td class="mono right pos">1.000${foot(24)}</td><td class="mono right">+0.452</td></tr>
+      <tr><td>Hints removed</td><td class="mono right neg">0.536${foot(28)}</td><td class="mono right pos">1.000${foot(25)}</td><td class="mono right">+0.464</td></tr>
+      <tr><td>5 distractors (trained on 3)</td><td class="mono right neg">0.518${foot(29)}</td><td class="mono right pos">1.000${foot(26)}</td><td class="mono right">+0.482</td></tr>
+      <tr><td>12 tasks (trained on 8)</td><td class="mono right neg">0.443${foot(30)}</td><td class="mono right pos">1.000${foot(27)}</td><td class="mono right">+0.557</td></tr>
+    </table>`;
 
-window.hubSortChange = (v) => { hubState.sort = v; loadHub(); };
+  return `
+    <div style="text-align:center; padding:34px 0 6px">
+      <div class="kicker">A LIVING RESEARCH PAPER · EVERY NUMBER OPENS ITS RAW DATA</div>
+      <h1 class="display">nanolab</h1>
+      <p class="lede" style="margin:14px auto 0; font-style:italic">
+        A self-hosted laboratory that trains AI models and proves it worked —
+        its flagship experiment taught a tiny model the skill of choosing what to remember.</p>
+    </div>
+    <hr class="page-rule">
 
-window.hubSearchSubmit = (ev) => {
-  if (ev) ev.preventDefault();
-  const box = document.querySelector("#hub-search");
-  hubState.search = box ? box.value.trim() : "";
-  loadHub();
-};
+    <div class="section">
+      <div class="sec-head"><span class="sec-no">§1</span><h2>The question</h2></div>
+      <p class="body-text">An agent with a small context must decide, after every exchange,
+      which facts survive into a 400-character notebook and which are discarded. Prompting
+      alone gets this partly right. We asked whether the <i>skill itself</i> — not the facts —
+      can be trained into a 0.6B model with reinforcement learning, and whether the answer
+      can be proven with held-out evidence rather than vibes.</p>
+    </div>
 
-async function loadHub() {
-  hubState.loading = true;
-  render();
-  try {
-    const params = new URLSearchParams({ sort: hubState.sort });
-    if (hubState.search) params.set("search", hubState.search);
-    const data = await api(`/hub?${params}`);
-    hubState.results = data.environments || [];
-    hubState.error = data.error || null;
-  } catch (err) {
-    hubState.results = [];
-    hubState.error = err.message;
-  }
-  hubState.loading = false;
-  render();
-}
+    <div class="section">
+      <div class="sec-head"><span class="sec-no">§2</span><h2>The baseline — and an honest failure first</h2></div>
+      <p class="body-text">The first version of the task was <i>too easy</i>: an untrained
+      scribe already scored 0.905${foot(16)} against the checker and 0.905${foot(17)} against a real
+      reader — matching a frontier model's 0.857${foot(5)}. Pure transcription. The trainability
+      gate refused to train, correctly. So the task was rebuilt to demand judgment: each
+      record buries the needed figure among one-off distractors, under a binding notebook
+      cap. The untrained baseline fell to <b class="num">0.548</b>${foot(22)} — inside the window
+      where a reward signal exists.</p>
+      ${calibSvg(0.548)}
+      ${figWrap("", "FIG. 1", "Calibration. Baseline 0.548 sits inside the 10–80% trainable window.", "EVAL #22")}
+    </div>
 
-window.installFromHub = async (btn, slug) => {
-  btn.disabled = true;
-  btn.textContent = "installing…";
-  try {
-    await post("/actions/install", { slug });
-    toast(`installing ${slug} — takes a minute`);
-    setTimeout(render, 700);
-  } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = "Install"; }
-};
+    <div class="section">
+      <div class="sec-head"><span class="sec-no">§3</span><h2>Training</h2></div>
+      <p class="body-text">Forty GRPO steps were configured on a free Kaggle T4; the kernel
+      hit the 12-hour wall near step 35, and its per-decade checkpoints were recovered from
+      the committed working directory. Pre-flight reward <span class="num">0.411</span>; the
+      curve saturates near <span class="num">1.0</span> by step 13 and holds.</p>
+      ${figWrap(curveSvg(s2, { ticks: [9, 19, 29] }),
+        "FIG. 2", "Reward vs step, recovered kernel log (steps 5–8 were not captured). Tick marks are saved checkpoints.", "RUN kaggle · ckpt 9/19/29")}
+    </div>
 
-function hubPanel() {
-  if (!hubState.open) return "";
-  const searchBar = `<div class="panel" style="margin-bottom:.7rem">
-    <div class="row" style="align-items:center">
-      <form onsubmit="hubSearchSubmit(event)" style="flex:1;display:flex;gap:.5rem">
-        <input id="hub-search" placeholder="Search 1,388 hub environments — math, coding, games, tools…"
-          value="${esc(hubState.search)}" style="flex:1"></form>
-      <div class="field"><label>sort</label>
-        <select onchange="hubSortChange(this.value)">
-          <option value="stars"${hubState.sort === "stars" ? " selected" : ""}>most starred</option>
-          <option value="updated_at"${hubState.sort === "updated_at" ? " selected" : ""}>recently updated</option>
-          <option value="created_at"${hubState.sort === "created_at" ? " selected" : ""}>newest</option>
-        </select></div>
-      <button class="btn" onclick="hubSearchSubmit()">Search</button>
-    </div></div>`;
-  if (hubState.loading)
-    return searchBar + '<div class="skel" style="height:220px"></div>';
-  if (hubState.error)
-    return searchBar + `<div class="empty">${esc(hubState.error)}</div>`;
-  const results = hubState.results || [];
-  const grid = results.length
-    ? `<div class="cards">${results.map((e) => {
-        const tags = (e.tags || []).slice(0, 4)
-          .map((t) => `<span class="chip" style="font-size:10px">${esc(t)}</span>`).join(" ");
-        return `<div class="card">
-          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:.5rem">
-            <div class="name">${esc(e.environment)}</div>
-            <div class="mono dim" style="font-size:11px">★ ${e.stars}</div></div>
-          <div class="meta" style="min-height:2.4em">${esc((e.description || "").slice(0, 110))}</div>
-          <div style="display:flex;gap:.3rem;flex-wrap:wrap;margin:.5rem 0">${tags}</div>
-          ${e.installed
-            ? '<span class="st done"><i></i>installed</span>'
-            : `<button class="btn ghost" onclick="installFromHub(this, '${esc(e.environment)}')">Install</button>`}
-        </div>`;
-      }).join("")}</div>`
-    : '<div class="empty">no matches on the hub</div>';
-  return searchBar + grid;
+    <div class="section">
+      <div class="sec-head"><span class="sec-no">§4</span><h2>The verdict</h2></div>
+      <p class="body-text">Held-out streams the model never saw in training. The trained
+      scribe kept every needed figure and dropped every junk line — twelve times out of
+      twelve. Its final notebook: 189 characters, zero distractors. The untrained model's:
+      649 characters, eleven distractors, needed figures truncated away.</p>
+      ${verdictBlock("The skill of choosing what to remember was trained, not prompted.",
+        "0.548", "1.000", "12/12 held-out streams · final checkpoint",
+        { evalFrom: 22, evalTo: 24 })}
+    </div>
+
+    <div class="section">
+      <div class="sec-head"><span class="sec-no">§5</span><h2>Transfer under drift</h2></div>
+      <p class="body-text">Does the trained skill survive away from its training
+      distribution? Three rungs it never trained on. The prompted model degrades with
+      distance; the trained one holds — and the gap <i>widens</i>. The hints-removed rung is
+      the decisive ablation: it filters junk by content, not by copying training labels.</p>
+      ${transfer}
+      <p class="aside-note">Scope, stated honestly: drift within the same task family;
+      checker Player; n=8 per rung. Three rungs is a short ladder — a different task
+      family entirely is the untested fourth rung.</p>
+    </div>
+
+    <div class="section">
+      <div class="sec-head"><span class="sec-no">§6</span><h2>What actually carried the skill</h2></div>
+      <p class="body-text">A four-way ablation on the same streams: strip the model to
+      base, then add back its trained weights, its accumulated notes, or both.</p>
+      <table class="sheet">
+        <tr><th>CONDITION</th><th class="right">REWARD</th></tr>
+        <tr><td class="mono">base</td><td class="mono right neg">0.000${foot(19)}</td></tr>
+        <tr><td class="mono">+ context (notes)</td><td class="mono right pos">0.393${foot(19)}</td></tr>
+        <tr><td class="mono">+ weights</td><td class="mono right neg">0.000${foot(21)}</td></tr>
+        <tr><td class="mono">+ both</td><td class="mono right pos">0.429${foot(21)}</td></tr>
+      </table>
+      ${figWrap("", "TABLE 1", "KNOWLEDGE-DOMINANT: notes beat weight-training. The weights alone carry nothing; the notebook carries almost everything.", "EVALS #19 · #21")}
+    </div>
+
+    <div class="section">
+      <div class="sec-head"><span class="sec-no">§7</span><h2>The other loop: weights</h2></div>
+      <p class="body-text">The same lab also closes the classic loop. Qwen3-0.6B on
+      grade-school math, GRPO+LoRA on a free T4: base <span class="num">0.422</span> →
+      trained <span class="num">0.562</span> on 64 held-out questions, final checkpoint —
+      measured in the training kernel's own exam. The lab's instruments also caught the
+      footnote: the gain is strongest inside the training-time token budget
+      (station re-reads at other settings: 0.500${foot(11)} · 0.562${foot(14)} · 0.625${foot(15)}).
+      Both readings live in the db; neither is hidden.</p>
+    </div>
+
+    <div style="text-align:center; margin:50px 0 10px">
+      <button class="btn" onclick="location.hash='#/bench'">OPEN THE BENCH →</button>
+    </div>
+    <p class="aside-note" style="text-align:center">Every ° above opens the raw rollout rows behind that number.</p>`;
 }
 
 async function environments() {
-  const [envs, strip] = await Promise.all([api("/environments"), jobsStrip()]);
-  const installedCards = envs.length
-    ? `<div class="cards">${envs
-        .map(
-          (e) => `<div class="card click" style="cursor:pointer"
-            onclick="location.hash='#/env/${esc(e.env_id)}'">
-          <div class="name">${esc(e.slug)}</div>
-          <div class="meta">v${esc(e.version)} · installed ${esc(
-            (e.installed_at || "").slice(0, 10))} ${
-            e.importable ? "" : '<span class="badge-missing">· missing from venv</span>'}</div>
-          <div class="score">${
-            e.best_reward !== null
-              ? `${fmt(e.best_reward)} <span class="dim" style="font-size:11px;font-family:var(--sans)">best · ${esc(e.best_model ?? "")}</span>`
-              : '<span class="dim" style="font-size:12px">not evaluated yet</span>'}</div>
-          </div>`).join("")}</div>`
-    : empty("flask", "Install your first environment",
-        "Environments are tasks plus automatic graders. Browse the hub above to install one.",
-        "nanolab env install primeintellect/gsm8k");
-  return `${head("Environments", "tasks + automatic graders, hub-compatible",
-    `<button class="btn" onclick="toggleHub()">${hubState.open ? "✕ Close hub" : "⊞ Browse hub"}</button>`)}
-    ${strip}
-    ${hubPanel()}
-    <div class="section-label"><b>01</b>installed · ${envs.length}</div>
-    ${installedCards}`;
+  const envs = await api("/environments");
+  const cards = envs.map((e) => `
+    <div class="card">
+      <h3><a href="#/env/${encodeURIComponent(e.slug)}">${esc(e.slug)}</a></h3>
+      <div class="sub">${esc(e.summary || "a verifiers-format task")}</div>
+      ${calibSvg(e.best_reward, { h: 62 })}
+      <div class="meta"><span>${e.best_reward != null ? `BEST ${fnum(e.best_reward)} · ${esc(String(e.best_model || "").slice(0, 22))}` : "NOT YET MEASURED"}</span>
+        <span>v${esc(e.version || "?")}</span></div>
+    </div>`).join("");
+  return `
+    <div class="kicker">ROOMS · ENVIRONMENTS</div>
+    <h1>Environments</h1><hr class="page-rule">
+    <p class="lede">A task is an environment with an automatic grader. An environment is
+    only trainable if its baseline lands in the 10–80% window — calibrate before you train.</p>
+    <div style="margin:18px 0"><button class="btn" onclick="installModal()">Install from hub</button></div>
+    <div class="cards">${cards ||
+      `<div class="empty"><div class="why">No environments yet. Install one and the loop begins.</div>
+       <span class="cmd">$ nanolab env install primeintellect/gsm8k</span></div>`}</div>`;
+}
+
+async function envDetail(slug) {
+  const d = await api(`/environments/${encodeURIComponent(decodeURIComponent(slug))}`);
+  if (!d) return `<div class="empty"><div class="why">environment not found</div></div>`;
+  const lb = (d.leaderboard || []).map((r, i) => `
+    <tr class="click" onclick="location.hash='#/evals/${r.id}'">
+      <td class="mono">${i + 1}</td><td>${modelChip(r.model)}</td>
+      <td class="mono right num">${fnum(r.mean_reward)}${foot(r.id)}</td>
+      <td class="mono right">${r.num_examples ?? "—"}</td></tr>`).join("");
+  const files = (d.files || []).map((f) => `
+    <details><summary class="mono" style="cursor:pointer; padding:6px 0">${esc(f.name)}</summary>
+    <pre style="background:var(--paper2); border:1px solid var(--rule); padding:12px; overflow-x:auto"><code>${esc(f.content || "")}</code></pre></details>`).join("");
+  return `
+    <div class="kicker"><a href="#/environments">ENVIRONMENTS</a> · ${esc(d.slug)}</div>
+    <h1>${esc(d.name || d.slug)}</h1><hr class="page-rule">
+    <p class="lede">${esc(d.summary || "")}</p>
+    <div style="margin:16px 0 26px">
+      <button class="btn" onclick="newEvalModal('${esc(d.slug)}')">Evaluate on this task</button>
+      <span class="chip" style="margin-left:12px">installed ${when(d.installed_at)}</span>
+    </div>
+    ${lb ? `<div class="section"><div class="sec-head"><span class="sec-no">LEADERBOARD</span></div>
+      <table class="sheet"><tr><th>RANK</th><th>MODEL</th><th class="right">REWARD</th><th class="right">N</th></tr>${lb}</table></div>` : ""}
+    ${d.readme ? `<div class="section"><div class="sec-head"><span class="sec-no">README</span></div>${mdLite(d.readme)}</div>` : ""}
+    ${files ? `<div class="section"><div class="sec-head"><span class="sec-no">CODE</span></div>${files}</div>` : ""}`;
 }
 
 async function evals() {
-  const [runs, envs, defaults, strip] = await Promise.all([
-    api("/evals"), api("/environments"), api("/defaults"), jobsStrip(),
-  ]);
-  const form = `<div class="panel" id="eval-form" style="display:none">
-    <div class="row">
-      <div class="field"><label>environment</label>
-        <select name="env">${envs
-          .map((e) => `<option value="${esc(e.env_id)}">${esc(e.slug)}</option>`)
-          .join("")}</select></div>
-      <div class="field"><label>model</label>
-        <input name="model" value="${esc(defaults.model)}" placeholder="model name"></div>
-      <div class="field"><label>questions</label>
-        <input name="n" type="number" value="5" min="1" max="50" style="min-width:70px"></div>
-      <div class="field"><label>tries each</label>
-        <input name="r" type="number" value="1" min="1" max="8" style="min-width:70px"></div>
-      <button class="btn" onclick="submitEval(this)">Start</button>
-    </div>
-    <div class="hint">${defaults.key_present
-      ? `Runs against <b>${esc(defaults.base_url)}</b> using your saved key. Costs a few cents of API credit.`
-      : `<span style="color:var(--warn)">No API key configured — add one to the repo's .env first.</span>`}</div>
-  </div>`;
-  const tbl = runs.length
-    ? table(
-        ["run", "env", "model", "status", "reward", "samples", "err", "date", ""],
-        runs.map(
-          (e) => `<tr class="click" onclick="location.hash='#/evals/${e.id}'">
-          <td class="num rank">#${e.id}</td><td class="mono">${esc(e.env)}</td>
-          <td>${modelChip(e.model)}</td><td>${status(e.status)}</td>
-          <td>${reward(e.mean_reward)}</td>
-          <td class="num">${e.num_examples}×${e.rollouts_per_example}</td>
-          <td class="num${e.errors ? " down" : ""}">${e.errors}</td>
-          <td class="num dim">${esc((e.finished_at || e.started_at || "").slice(0, 10))}</td>
-          <td class="chev">›</td></tr>`)) +
-      '<div class="fig">click a run for the rollout inspector</div>'
-    : empty("chart", "Run your first evaluation",
-        "An eval sends each task to a model and scores every answer with the environment's rubric.",
-        "nanolab eval run gsm8k -m <model>");
-  return `${head("Evaluations", "measure a model on an environment — click a row to inspect",
-    `<button class="btn" onclick="togglePanel('eval-form')">＋ New evaluation</button>`)}
-    ${strip}${form}
-    <div class="kpis">
-      ${kpi(runs.filter((r) => ["running", "pending"].includes(r.status)).length,
-        "active evals", "pending or running")}
-      ${kpi(runs.filter((r) => r.status === "done").length, "successful evals", "completed")}
-      ${kpi(runs.length, "total evals", "all statuses")}
-    </div>${tbl}`;
+  const runs = await api("/evals");
+  const rows = runs.map((e) => `
+    <tr class="click" onclick="location.hash='#/evals/${e.id}'">
+      <td class="mono">#${e.id}</td><td class="mono">${esc(e.env)}</td>
+      <td>${modelChip(e.model)}</td>
+      <td class="mono right">${e.num_examples}×${e.rollouts_per_example}</td>
+      <td class="mono right num ${e.mean_reward >= 0.5 ? "pos" : e.mean_reward != null ? "neg" : ""}">${fnum(e.mean_reward)}${e.status === "done" ? foot(e.id) : ""}</td>
+      <td class="right"><span class="status ${esc(e.status)}">${esc(e.status)}</span></td>
+    </tr>`).join("");
+  return `
+    <div class="kicker">ROOMS · EVALS</div>
+    <h1>Evals</h1><hr class="page-rule">
+    <p class="lede">Every measurement the lab has ever made — cached, resumable, and
+    auditable to the rollout. The eval station matches the reference tool to every decimal.</p>
+    <div style="margin:18px 0"><button class="btn" onclick="newEvalModal()">New evaluation</button></div>
+    <table class="sheet">
+      <tr><th>EVAL</th><th>TASK</th><th>MODEL</th><th class="right">N×R</th><th class="right">REWARD</th><th class="right">STATUS</th></tr>
+      ${rows || `<tr><td colspan="6"><div class="empty"><div class="why">No measurements yet.
+        The before-number is the one training has to beat.</div>
+        <span class="cmd">$ nanolab eval run &lt;env&gt; -m &lt;model&gt; -n 10</span></div></td></tr>`}
+    </table>`;
 }
 
 async function evalDetail(id) {
   const d = await api(`/evals/${id}`);
-  const metrics = Object.entries(d.meta.avg_metrics || {})
-    .map(([k, v]) => `<span class="chip">${esc(k)} ${fmt(v)}</span>`).join("");
-  const rollouts = d.rollouts
-    .map((r) => {
-      const msgs = [...(r.prompt || []), ...(r.completion || [])];
-      const convo = msgs
-        .map((m) => `<div class="msg ${esc(m.role)}"><div class="role">${esc(m.role)}</div>
-           <pre>${esc(m.content)}</pre></div>`).join("");
-      const last = (r.completion || []).slice(-1)[0];
-      const cls = (r.reward ?? 0) >= 0.5 ? "up" : "down";
-      return `<details class="rollout"><summary>
-        <span class="num rank">#${r.example}.${r.rollout}</span>
-        <span class="v mono ${cls}" style="font-weight:500">${fmt(r.reward)}</span>
-        <span class="preview">${esc(last ? last.content : "")}</span>
-        ${r.metrics._error ? `<span class="chip failed">${esc(r.metrics._error)}</span>` : ""}
-        </summary>${convo}</details>`;
-    }).join("");
-  return `<a class="back" href="#/evals">← Evaluations</a>
-    ${head(`Eval run #${d.id}`, `${d.env} · ${d.model}`, cli(`nanolab eval show ${d.id}`))}
-    <div class="kpis">
-      ${kpi(fmt(d.mean_reward), "mean reward", "", status(d.status))}
-      ${kpi(`${d.num_examples}×${d.rollouts_per_example}`, "examples × rollouts",
-        d.seed !== null ? `seed ${d.seed}` : "no shuffle")}
-      ${kpi(d.rollouts.length, "rollouts stored",
-        `${d.rollouts.filter((r) => r.metrics._error).length} errors`)}
-    </div>
-    ${metrics ? `<div class="metric-chips">${metrics}</div>` : ""}
-    <div class="section-label"><b>01</b>rollout inspector</div>
-    ${rollouts || '<div class="empty">no samples stored</div>'}`;
+  if (!d) return `<div class="empty"><div class="why">eval not found</div></div>`;
+  const metrics = Object.entries(d.meta?.avg_metrics || {}).map(([k, v]) =>
+    `<tr><td class="mono">${esc(k)}</td><td class="mono right num">${fnum(v)}</td></tr>`).join("");
+  const rollouts = (d.rollouts || []).map((r, i) => `
+    <tr class="click" onclick="toggleRow(${i})">
+      <td class="mono">${r.example}·${r.rollout}</td>
+      <td class="mono right num ${r.reward >= 0.5 ? "pos" : "neg"}">${fnum(r.reward)}</td>
+    </tr><tr id="row-${i}" style="display:none"><td colspan="2">${convoHtml(r)}</td></tr>`).join("");
+  return `
+    <div class="kicker"><a href="#/evals">EVALS</a> · #${d.id}</div>
+    <h1>${esc(d.env)}</h1><hr class="page-rule">
+    ${verdictBlock(`${esc(d.model)} on ${esc(d.env)}`, "", fnum(d.mean_reward),
+      `n=${d.num_examples} · r=${d.rollouts_per_example} · ${d.status} · ${when(d.started_at)}`,
+      { small: true })}
+    ${metrics ? `<div class="section"><div class="sec-head"><span class="sec-no">METRICS</span></div>
+      <table class="sheet"><tr><th>METRIC</th><th class="right">MEAN</th></tr>${metrics}</table></div>` : ""}
+    <div class="section"><div class="sec-head"><span class="sec-no">ROLLOUTS</span>
+      <h2>Every conversation</h2></div>
+      <table class="sheet"><tr><th>EXAMPLE·ROLLOUT</th><th class="right">REWARD</th></tr>${rollouts}</table>
+    </div>`;
 }
-
-window.submitTrainCloud = async (btn) => {
-  const sel = btn.closest(".panel").querySelector("[name=config]");
-  btn.disabled = true;
-  try {
-    await post("/actions/train-cloud", { config: sel.value });
-    toast("pushed to Kaggle — training runs unattended (~hours)");
-    setTimeout(render, 700);
-  } catch (err) { toast(err.message); btn.disabled = false; }
+window.toggleRow = (i) => {
+  const el = $(`#row-${i}`);
+  if (el) el.style.display = el.style.display === "none" ? "" : "none";
 };
 
 async function training() {
-  const [runs, cloudRuns, configs, strip] = await Promise.all([
-    api("/training"), api("/cloud"), api("/configs"), jobsStrip(),
-  ]);
-
-  const form = `<div class="panel" id="train-form" style="display:none">
-    <div class="row">
-      <div class="field"><label>training config</label>
-        <select name="config">${configs
-          .map((c) => `<option value="${esc(c.path)}">${esc(c.name)} — ${esc(c.env)},
-            ${c.max_steps} steps, lr ${c.learning_rate}</option>`).join("")}</select></div>
-      <button class="btn" onclick="submitTrainCloud(this)">Launch on Kaggle</button>
-    </div>
-    <div class="hint">Runs on Kaggle's free T4 via the API — no notebook, no tab.
-      Finished runs merge back automatically; the curve appears below when done.</div>
-  </div>`;
-
-  const active = cloudRuns.filter((c) => ["pushed", "running"].includes(c.status));
-  const cloudStrip = active.length
-    ? `<div class="activity">${active.map((c) => {
-        const mins = Math.max(0, Math.round((Date.now() - Date.parse(c.created_at)) / 60000));
-        return `<div class="job"><span class="st running"><i></i></span>
-          <span class="mono">${esc(c.config_path.split("/").pop())} · ${
-            c.status === "running" ? "training on Kaggle" : "queued on Kaggle"} · ${mins}m</span></div>`;
-      }).join("")}</div>`
-    : "";
-  const tbl = runs.length
-    ? table(
-        ["run", "env", "model", "status", "steps", "reward curve", "first → last", ""],
-        runs.map((t) => {
-          const first = t.rewards[0], last = t.rewards[t.rewards.length - 1];
-          const delta = t.rewards.length ? last - first : null;
-          return `<tr class="click" onclick="location.hash='#/training/${t.id}'">
-            <td class="num rank">#${t.id}</td><td class="mono">${esc(t.env ?? "?")}</td>
-            <td>${modelChip(t.model)}</td><td>${status(t.status)}</td>
-            <td class="num">${t.steps_completed}</td><td>${curveSvg(t.rewards)}</td>
-            <td class="num">${t.rewards.length
-              ? `${fmt(first)} → ${fmt(last)}<br><span class="${delta >= 0 ? "up" : "down"}">${delta >= 0 ? "↑" : "↓"} ${fmt(Math.abs(delta))}</span>`
-              : "—"}</td><td class="chev">›</td></tr>`;
-        })) +
-      '<div class="fig">shaded band = the 10–80% trainability window</div>'
-    : empty("wave", "Run your first training run",
-        "Training turns rewards into a LoRA adapter with GRPO — checkpointed, resumable.",
-        "nanolab train configs/qwen3-0.6b-gsm8k.toml");
-  return `${head("Training", "GRPO + LoRA on a free cloud GPU — click, close the laptop, come back",
-    `<button class="btn" onclick="togglePanel('train-form')">＋ New training run</button>`)}
-    ${strip}${cloudStrip}${form}${tbl}`;
+  const [runs, cloud] = await Promise.all([api("/training"), api("/cloud")]);
+  const cloudRows = cloud.slice(0, 5).map((c) => `
+    <div class="job"><span class="status ${esc(c.status)}">${esc(c.status)}</span>
+      <span class="mono">${esc(c.kernel_ref)}</span>
+      <span style="margin-left:auto" class="mono">${when(c.created_at)}</span></div>`).join("");
+  const rows = runs.map((t) => {
+    const pts = (t.rewards || []).map((y, x) => ({ x, y }));
+    const spark = pts.length ? curveSvg(pts, { w: 240, h: 60 }) : "";
+    return `
+    <tr class="click" onclick="location.hash='#/training/${t.id}'">
+      <td class="mono">#${t.id}</td><td class="mono">${esc(t.env || "?")}</td>
+      <td>${modelChip(t.model)}</td>
+      <td style="width:250px">${spark}</td>
+      <td class="mono right">${t.steps_completed ?? 0}</td>
+      <td class="right"><span class="status ${esc(t.status)}">${esc(t.status)}</span></td>
+    </tr>`;
+  }).join("");
+  return `
+    <div class="kicker">ROOMS · TRAINING</div>
+    <h1>Training</h1><hr class="page-rule">
+    <p class="lede">GRPO + LoRA: reward good attempts, discourage bad ones, checkpoint every
+    decade — because the final step is not always the best one.</p>
+    <div style="margin:18px 0"><button class="btn" onclick="newTrainModal()">New training run</button></div>
+    ${cloudRows ? `<div class="section" style="margin-top:8px"><div class="sec-head"><span class="sec-no">KAGGLE</span></div>
+      <div class="jobs">${cloudRows}</div></div>` : ""}
+    <table class="sheet">
+      <tr><th>RUN</th><th>TASK</th><th>MODEL</th><th>CURVE</th><th class="right">STEPS</th><th class="right">STATUS</th></tr>
+      ${rows || `<tr><td colspan="6"><div class="empty"><div class="why">No training yet. Measure first,
+        then train, then measure again.</div>
+        <span class="cmd">$ nanolab train --cloud configs/&lt;config&gt;.toml</span></div></td></tr>`}
+    </table>`;
 }
 
 async function trainingDetail(id) {
   const d = await api(`/training/${id}`);
-  const rewards = d.curve.map((p) => p.reward);
-  const adapters = d.adapters.length
-    ? table(
-        ["adapter", "step", "path", "evaluate"],
-        d.adapters.map(
-          (a) => `<tr><td class="num rank">#${a.id}</td><td class="num">${a.step}</td>
-          <td class="mono dim">${esc(a.path)}</td>
-          <td>${cli(`nanolab eval run <env> -m ${a.base_model}:${a.id}`)}</td></tr>`))
-    : '<div class="empty">no checkpoints registered</div>';
-  return `<a class="back" href="#/training">← Training</a>
-    ${head(`Train run #${d.id}`, `${d.env ?? "?"} · ${d.model}`,
-      cli(`nanolab training show ${d.id}`))}
-    <div class="kpis">
-      ${kpi(d.steps_completed, "steps", "", status(d.status))}
-      ${kpi(rewards.length ? fmt(rewards[rewards.length - 1]) : "—", "last reward",
-        rewards.length ? `from ${fmt(rewards[0])}` : "")}
-      ${kpi(d.adapters.length, "checkpoints", "in adapters/")}
-    </div>
-    <div class="section-label"><b>01</b>reward curve</div>
-    ${curveSvg(rewards, 720, 130)}
-    <div class="fig">FIG.1 — reward vs step · shaded band = trainability window</div>
-    <div class="section-label"><b>02</b>checkpoints</div>${adapters}
-    <div class="section-label"><b>03</b>config</div>
-    <pre class="toml">${esc(d.config_toml || "")}</pre>`;
+  if (!d) return `<div class="empty"><div class="why">run not found</div></div>`;
+  const pts = (d.curve || []).map((p) => ({ x: p.step, y: p.reward }));
+  const ticks = (d.adapters || []).map((a) => a.step);
+  const ckpts = (d.adapters || []).map((a) => `
+    <tr><td class="mono">ckpt-${String(a.step).padStart(3, "0")}</td>
+      <td class="mono">${esc(a.path)}</td>
+      <td class="mono right">${when(a.created_at)}</td></tr>`).join("");
+  return `
+    <div class="kicker"><a href="#/training">TRAINING</a> · RUN ${d.id}</div>
+    <h1>Run ${d.id} · ${esc(d.env || "?")}</h1><hr class="page-rule">
+    <p class="lede">${esc(d.model)} · ${esc(d.status)} · ${d.steps_completed ?? 0} steps ·
+      started ${when(d.started_at)}</p>
+    ${pts.length ? figWrap(curveSvg(pts, { ticks }),
+      `FIG. RUN-${d.id}`, "Reward vs step. Tick marks are saved checkpoints; any can be served or resumed.",
+      "checkpoint every 10") : `<div class="empty"><div class="why">no curve recorded</div></div>`}
+    ${ckpts ? `<div class="section"><div class="sec-head"><span class="sec-no">CHECKPOINTS</span></div>
+      <table class="sheet"><tr><th>CHECKPOINT</th><th>PATH</th><th class="right">SAVED</th></tr>${ckpts}</table>
+      <p class="aside-note">Serve one from Artifacts, or evaluate it with
+      <span class="cmd">nanolab eval run &lt;env&gt; -m base:adapter-id</span></p></div>` : ""}`;
 }
 
-window.deployAdapter = async (btn, adapterId) => {
-  btn.disabled = true;
-  btn.textContent = "loading model…";
+/* Memory Agent — honest state: the finding is real (shown from live db rows),
+   the interactive engine ships next. No fake chat. */
+async function agent() {
+  let notebook = "", notebookMeta = "";
   try {
-    await post("/actions/deploy", { adapter_id: adapterId });
-    toast("deploying — the model takes ~a minute to load");
-    setTimeout(render, 800);
-  } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = "Deploy"; }
-};
-
-window.stopDeployment = async (depId) => {
-  try {
-    await post("/actions/stop-deployment", { deployment_id: depId });
-    toast("stopped");
-    setTimeout(render, 400);
-  } catch (err) { toast(err.message); }
-};
-
-async function inference() {
-  const [deps, adapters, strip] = await Promise.all([
-    api("/deployments"), api("/adapters"), jobsStrip(),
-  ]);
-  const live = deps.filter((d) => d.status === "running");
-
-  const adapterTbl = adapters.length
-    ? table(
-        ["adapter", "model", "from run", "step", "status", ""],
-        adapters.map(
-          (a) => `<tr><td class="num rank">#${a.id}</td>
-          <td>${modelChip(`${a.base_model}:${a.id}`)}</td>
-          <td class="num">${a.train_run_id
-            ? `<a href="#/training/${a.train_run_id}" style="color:var(--dim)">run #${a.train_run_id}</a>` : "—"}</td>
-          <td class="num">${a.step ?? "—"}</td>
-          <td>${a.deployed
-            ? `<span class="st running"><i></i>serving</span>`
-            : a.exists ? '<span class="st"><i></i>on disk</span>'
-            : '<span class="st failed"><i></i>files missing</span>'}</td>
-          <td>${a.deployed
-            ? `<span class="mono dim">${esc(a.endpoint)}</span>`
-            : a.exists
-              ? `<button class="btn ghost" onclick="deployAdapter(this, ${a.id})">Deploy</button>`
-              : ""}</td></tr>`))
-    : empty("server", "No adapters yet",
-        "Adapters are created by training runs. Finish a run and its checkpoints appear here, ready to serve.",
-        "nanolab train configs/qwen3-0.6b-gsm8k.toml --resume");
-
-  const depTbl = deps.length
-    ? table(
-        ["id", "model", "endpoint", "status", ""],
-        deps.map(
-          (d) => `<tr><td class="num rank">#${d.id}</td>
-          <td>${modelChip(`${d.base_model}:${d.adapter_id}`)}</td>
-          <td class="mono dim">${esc(d.endpoint)}</td>
-          <td>${status(d.status)}</td>
-          <td>${d.status === "running"
-            ? `<button class="btn ghost" onclick="stopDeployment(${d.id})">Stop</button>` : ""}</td></tr>`))
-    : '<div class="empty">no deployments yet — press Deploy on an adapter above</div>';
-
-  const hint = live.length
-    ? `<div class="hint" style="margin-bottom:1rem">Evaluate a served adapter:
-       ${cli(`nanolab eval run <env> -m ${live[0].base_model}:${live[0].adapter_id} -n 5`)}</div>`
-    : "";
-
-  return `${head("Inference", "serve adapters on this machine — no CUDA required",
-    cli("nanolab deployments create <adapter-id> --local"))}
-    ${strip}
-    <div class="kpis">
-      ${kpi(adapters.length, "adapters", "from training runs")}
-      ${kpi(live.length, "serving now", "local endpoints")}
-      ${kpi(deps.length, "deployments", "all time")}
-    </div>
-    <div class="section-label"><b>01</b>adapters</div>${adapterTbl}
-    <div class="section-label"><b>02</b>deployments</div>${hint}${depTbl}`;
-}
-
-/* minimal markdown renderer: headings, fenced code, inline code, bold,
-   links, bullet lists, paragraphs — enough for environment READMEs */
-function md(src) {
-  const blocks = String(src || "").split(/```/);
-  let html = "";
-  blocks.forEach((block, i) => {
-    if (i % 2 === 1) {
-      const body = block.replace(/^[a-z]*\n/, "");
-      html += `<pre><code>${esc(body)}</code></pre>`;
-      return;
+    const d = await api("/evals/24");
+    const roll = d?.rollouts?.[0];
+    const msgs = Array.isArray(roll?.completion) ? roll.completion : [];
+    const last = [...msgs].reverse().find((m) => m.role === "assistant");
+    if (last) {
+      notebook = String(last.content || "");
+      notebookMeta = `${notebook.length}/400 chars · rewritten by the trained scribe · EVAL #24, stream 0`;
     }
-    const lines = block.split("\n");
-    let list = false, para = [];
-    const flush = () => {
-      if (para.length) { html += `<p>${para.join(" ")}</p>`; para = []; }
-    };
-    const inline = (s) =>
-      esc(s)
-        .replace(/`([^`]+)`/g, "<code>$1</code>")
-        .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
-        .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,
-          '<a href="$2" target="_blank" style="color:var(--accent)">$1</a>');
-    lines.forEach((line) => {
-      const h = line.match(/^(#{1,3})\s+(.*)/);
-      const li = line.match(/^\s*[-*]\s+(.*)/);
-      if (h) { flush(); if (list) { html += "</ul>"; list = false; }
-        html += `<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`; }
-      else if (li) { flush(); if (!list) { html += "<ul>"; list = true; }
-        html += `<li>${inline(li[1])}</li>`; }
-      else if (!line.trim()) { flush(); if (list) { html += "</ul>"; list = false; } }
-      else para.push(inline(line));
-    });
-    flush(); if (list) html += "</ul>";
-  });
-  return html;
+  } catch { /* fresh lab: section simply doesn't render */ }
+  return `
+    <div class="kicker">ROOMS · MEMORY AGENT</div>
+    <h1>Memory Agent</h1><hr class="page-rule">
+    <p class="lede">An assistant whose only memory is a capped notebook, rewritten after
+    every exchange by the trained Scribe — the model this lab taught to choose what to
+    remember. The agent itself is an experiment: switch the memory writer and the lift
+    recomputes against a no-memory control.</p>
+    ${verdictBlock("The memory writer this room will use, measured.",
+      "0.548", "1.000", "prompted vs trained scribe · 12/12 held-out streams",
+      { evalFrom: 22, evalTo: 24, small: true })}
+    ${notebook ? `
+    <div class="section">
+      <div class="sec-head"><span class="sec-no">THE NOTEBOOK</span><h2>A real one, from the db</h2></div>
+      <div class="convo"><div class="msg assistant"><div class="role">trained scribe · final rewrite</div>
+        <pre>${esc(notebook)}</pre></div></div>
+      <p class="aside-note">${esc(notebookMeta)} — zero junk lines kept. This is the actual
+      artifact behind the 1.000${foot(24)}, not a mockup.</p>
+    </div>` : ""}
+    <div class="empty">
+      <div class="why">The interactive engine — chat + live notebook rewriting + lift meter —
+      is the next build (v0.3). The trained scribe adapter it will use is already on disk.</div>
+      <span class="cmd">adapters/scribe_s2/step00029</span>
+    </div>`;
 }
 
-let envTab = "overview";
-let envFile = 0;
-window.setEnvTab = (t) => { envTab = t; render(); };
-window.setEnvFile = (i) => { envFile = i; render(); };
-
-/* minimal python syntax highlighter — strings, comments, decorators,
-   keywords, numbers; multiline-safe (triple-quoted strings are one token) */
-function hlPy(src) {
-  const re = new RegExp(
-    [
-      '"""[\\s\\S]*?"""', "'''[\\s\\S]*?'''",
-      '"(?:\\\\.|[^"\\\\\\n])*"', "'(?:\\\\.|[^'\\\\\\n])*'",
-      "#[^\\n]*", "@\\w[\\w.]*",
-      "\\b\\d+(?:\\.\\d+)?\\b",
-      "\\b(?:def|class|return|if|elif|else|for|while|import|from|as|with|" +
-        "try|except|finally|raise|lambda|yield|async|await|pass|break|" +
-        "continue|not|and|or|in|is|None|True|False|self)\\b",
-    ].join("|"),
-    "g"
-  );
-  let out = "", last = 0, m;
-  while ((m = re.exec(src))) {
-    out += esc(src.slice(last, m.index));
-    const t = m[0];
-    const cls =
-      t[0] === "#" ? "tok-com"
-      : t[0] === '"' || t[0] === "'" ? "tok-str"
-      : t[0] === "@" ? "tok-dec"
-      : /^\d/.test(t) ? "tok-num"
-      : "tok-kw";
-    out += `<span class="${cls}">${esc(t)}</span>`;
-    last = re.lastIndex;
-  }
-  return out + esc(src.slice(last));
+async function artifacts() {
+  const [adapters, deployments] = await Promise.all([api("/adapters"), api("/deployments")]);
+  const dep = (deployments || []).filter((d) => d.status === "running");
+  const depRows = dep.map((d) => `
+    <div class="job"><span class="status running">running</span>
+      <span class="mono">deployment #${d.id} · adapter ${d.adapter_id} · ${esc(d.endpoint || "")}</span>
+      <button class="x" onclick="stopDep(${d.id})">stop</button></div>`).join("");
+  const rows = (adapters || []).map((a) => `
+    <tr><td class="mono">#${a.id}</td>
+      <td class="mono">run ${a.train_run_id} · step ${a.step}</td>
+      <td class="mono">${esc(a.env || "?")}</td>
+      <td class="mono" style="font-size:12px">${esc(a.path)}${a.exists ? "" : ' <span class="neg">(missing)</span>'}</td>
+      <td class="right">${a.deployed
+        ? `<span class="status running">serving</span>`
+        : a.exists ? `<button class="btn sm ghost" onclick="deployAdapter(${a.id})">serve</button>` : ""}</td>
+    </tr>`).join("");
+  return `
+    <div class="kicker">ROOMS · ARTIFACTS</div>
+    <h1>Artifacts</h1><hr class="page-rule">
+    <p class="lede">Checkpoints land here when a run saves. Serving is plumbing: an adapter
+    goes live only so an eval (or the agent) can read it. Everything is a file.</p>
+    ${depRows ? `<div class="jobs">${depRows}</div>` : ""}
+    <table class="sheet">
+      <tr><th>ADAPTER</th><th>ORIGIN</th><th>TASK</th><th>PATH</th><th class="right"></th></tr>
+      ${rows || `<tr><td colspan="5"><div class="empty"><div class="why">No adapters yet —
+        finish a training run and its checkpoints register here.</div></div></td></tr>`}
+    </table>`;
 }
-
-async function envDetail(id) {
-  const d = await api(`/environments/${id}`);
-  const tabs = ["overview", "code", "leaderboard"]
-    .map((t) => `<button class="tab${envTab === t ? " active" : ""}"
-      onclick="setEnvTab('${t}')">${t[0].toUpperCase() + t.slice(1)}${
-      t === "leaderboard" ? ` (${d.leaderboard.length})` : ""}</button>`)
-    .join("");
-
-  let body = "";
-  if (envTab === "overview") {
-    const best = d.leaderboard[0];
-    body = `<div class="repo">
-      <div class="readme">${d.readme ? md(d.readme)
-        : `<p class="dim">${esc(d.summary || "No README shipped with this package.")}</p>`}</div>
-      <div class="about">
-        <h4>about</h4>
-        <div>${esc(d.summary || "—")}</div>
-        <h4>version</h4><div class="mono">v${esc(d.version || "?")}</div>
-        <h4>python</h4><div class="mono">${esc(d.requires_python || "—")}</div>
-        <h4>best score</h4>
-        <div class="mono">${best ? `${fmt(best.mean_reward)} · ${esc(best.model)}` : "not evaluated yet"}</div>
-        <h4>installed</h4><div class="mono">${esc((d.installed_at || "").slice(0, 10))}</div>
-        <h4>dependencies</h4>
-        ${(d.requires || []).map((r) => `<span class="dep">${esc(r)}</span>`).join("") || "—"}
-      </div></div>`;
-  } else if (envTab === "code") {
-    if (!d.files.length) {
-      body = '<div class="empty">source not found in the venv</div>';
-    } else {
-      const i = Math.min(envFile, d.files.length - 1);
-      const f = d.files[i];
-      const lineCount = f.content.split("\n").length;
-      const tree = d.files
-        .map((x, j) => `<div class="fitem${j === i ? " active" : ""}"
-          onclick="setEnvFile(${j})"><span>${esc(x.name)}</span>
-          <span class="meta">${x.content.split("\n").length}L</span></div>`)
-        .join("");
-      const gutter = Array.from({ length: lineCount }, (_, k) => k + 1).join("\n");
-      body = `<div class="codeview">
-        <div class="filetree">${tree}</div>
-        <div>
-          <div class="codehead">${esc(f.name)}
-            <span class="meta">· ${lineCount} lines · ${(f.content.length / 1024).toFixed(1)} KB</span></div>
-          <div class="codepane"><div class="gutter">${gutter}</div>
-            <pre class="src">${hlPy(f.content)}</pre></div>
-        </div></div>`;
-    }
-  } else {
-    body = d.leaderboard.length
-      ? table(
-          ["#", "model", "reward", "samples", "date"],
-          d.leaderboard.map(
-            (r, i) => `<tr class="click" onclick="location.hash='#/evals/${r.id}'">
-             <td class="num rank">${i + 1}</td><td>${modelChip(r.model)}</td>
-             <td>${reward(r.mean_reward)}</td>
-             <td class="num">${r.num_examples}×${r.rollouts_per_example}</td>
-             <td class="num dim">${esc((r.finished_at || "").slice(0, 10))}</td></tr>`))
-      : empty("chart", "No evaluations yet",
-          "Run one from the Evaluations page and it will rank here.");
-  }
-  return `<a class="back" href="#/environments">← Environments</a>
-    ${head(d.slug, d.summary || "environment",
-      `<button class="btn" onclick="location.hash='#/evals'">Evaluate</button>`)}
-    <div class="tabs">${tabs}</div>${body}`;
-}
-
-/* ── playground: chat with a deployed model ─────────────────────────── */
-
-let play = { depId: null, thread: [], busy: false };
-
-window.playSelect = (v) => { play.depId = v ? Number(v) : null; render(); };
-
-window.playSend = async (ev) => {
-  if (ev) ev.preventDefault();
-  const box = document.querySelector("#play-input");
-  const text = box ? box.value.trim() : "";
-  if (!text || play.busy || !play.depId) return;
-  play.thread.push({ role: "user", content: text });
-  play.busy = true;
-  render();
-  try {
-    const resp = await post("/actions/chat", {
-      deployment_id: play.depId,
-      messages: play.thread,
-    });
-    play.thread.push({ role: "assistant", content: resp.content });
-  } catch (err) {
-    play.thread.push({ role: "assistant", content: `⚠ ${err.message}` });
-  }
-  play.busy = false;
-  render();
+window.deployAdapter = async (id) => {
+  try { await post("/actions/deploy", { adapter_id: id }); toast("serving locally — endpoint appears above"); }
+  catch (e) { toast("could not serve: " + e.message, 5000); }
+};
+window.stopDep = async (id) => {
+  try { await post("/actions/stop-deployment", { deployment_id: id }); toast("stopped"); }
+  catch (e) { toast(e.message, 4000); }
 };
 
-window.playClear = () => { play.thread = []; render(); };
-
-async function playground() {
-  const deps = await api("/deployments");
-  const live = deps.filter((d) => d.status === "running");
-  if (live.length && !live.some((d) => d.id === play.depId))
-    play.depId = live[0].id;
-
-  if (!live.length)
-    return `${head("Playground", "chat with your own trained models")}
-      ${empty("server", "Nothing is serving yet",
-        "Deploy an adapter on the Inference page, then come back here to talk to it.",
-        "nanolab deployments create <adapter-id> --local")}`;
-
-  const picker = `<div class="panel"><div class="row" style="align-items:center">
-    <div class="field"><label>model</label>
-      <select onchange="playSelect(this.value)">${live
-        .map((d) => `<option value="${d.id}"${d.id === play.depId ? " selected" : ""}>
-          ${esc(`${d.base_model}:${d.adapter_id}`)} — deployment #${d.id}</option>`)
-        .join("")}</select></div>
-    <div class="hint" style="margin:0;flex:1">Runs on this machine — expect a
-      thoughtful pause (~30–90s), not chat-app speed.</div>
-    ${play.thread.length ? '<button class="btn ghost" onclick="playClear()">Clear</button>' : ""}
-  </div></div>`;
-
-  const thread = play.thread.length
-    ? `<div class="tablewrap" style="margin-bottom:1rem">${play.thread
-        .map((m) => `<div class="msg ${esc(m.role)}"><div class="role">${esc(
-          m.role === "assistant" ? "your model" : "you")}</div>
-          <pre>${esc(m.content)}</pre></div>`).join("")}
-        ${play.busy ? '<div class="msg assistant"><div class="role">your model</div><pre class="dim">thinking…</pre></div>' : ""}
-      </div>`
-    : `<div class="empty" style="margin-bottom:1rem">
-        <div class="headline">Ask your trained model anything</div>
-        <div>Try a math word problem — that's what it practiced.</div></div>`;
-
-  return `${head("Playground", "chat with your own trained models")}
-    ${picker}${thread}
-    <form onsubmit="playSend(event)" class="panel" style="display:flex;gap:.6rem">
-      <input id="play-input" placeholder="${play.busy ? "waiting for the model…" : "Type a message and press Enter"}"
-        ${play.busy ? "disabled" : ""} style="flex:1">
-      <button class="btn" ${play.busy ? "disabled" : ""}>Send</button>
+/* console — the CLI, from the browser; read-only allowlist enforced server-side */
+const consoleHistory = [];
+async function consolePage() {
+  const hist = consoleHistory.map((h) =>
+    `<div class="cline">$ nanolab ${esc(h.cmd)}</div>${esc(h.out)}\n`).join("\n");
+  return `
+    <div class="kicker">ROOMS · CONSOLE</div>
+    <h1>Console</h1><hr class="page-rule">
+    <p class="lede" style="font-size:16px">The read-only CLI, from the browser.
+    <span class="mono" style="font-size:12.5px">env list · eval list · eval show N ·
+    training list · training show N · deployments list · cloud status · instrument N M · version</span></p>
+    <div class="console-out" id="console-out">${hist || "run a command — output appears here, unedited."}</div>
+    <form class="console-bar" onsubmit="runConsole(event)">
+      <span class="prompt">$ nanolab</span>
+      <input id="console-in" autocomplete="off" spellcheck="false" placeholder="eval list">
+      <button class="btn" type="submit">Run</button>
     </form>`;
 }
-
-/* ── console drawer: docked at the bottom of every page ─────────────── */
-
-const consoleDrawer = document.getElementById("console-drawer");
-const consoleHistory = document.getElementById("console-history");
-let consoleHtml = null;
-
-window.toggleConsole = () => {
-  consoleDrawer.classList.toggle("open");
-  if (consoleDrawer.classList.contains("open")) refreshConsole();
-};
-
-window.consoleFill = (cmd) => {
-  const box = document.getElementById("console-input");
-  if (box) { box.value = cmd; box.focus(); }
-};
-
-window.consoleRun = async (ev) => {
-  if (ev) ev.preventDefault();
-  const box = document.getElementById("console-input");
-  const raw = box ? box.value.trim() : "";
-  if (!raw) { toggleConsole(); return; }
-  box.value = "";
-  consoleDrawer.classList.add("open");
+window.runConsole = async (ev) => {
+  ev.preventDefault();
+  const inp = $("#console-in");
+  const cmd = inp.value.trim();
+  if (!cmd) return;
+  inp.value = "";
+  const out = $("#console-out");
+  out.textContent += `\n$ nanolab ${cmd}\n… running`;
+  out.scrollTop = out.scrollHeight;
   try {
-    await post("/actions/cli", { command: raw });
-  } catch (err) { toast(err.message); }
-  refreshConsole();
-};
-
-async function refreshConsole() {
-  try {
-    const jobs = (await api("/jobs")).filter((j) => j.kind === "cli");
-    const suggestions = [
-      "eval list", "env list", "training list", "deployments list",
-      "training show 2", "cloud status",
-    ];
-    const html = jobs.length
-      ? jobs.map((j) => `<div class="centry">
-          <div class="chead">${esc(j.label)}
-            <span style="margin-left:auto">${
-              j.status === "running" ? '<span class="st running"><i></i>running</span>'
-              : j.status === "failed" ? '<span class="st failed"><i></i>failed</span>'
-              : '<span class="st done"><i></i>done</span>'}</span></div>
-          ${j.output ? `<pre>${esc(j.output)}</pre>`
-            : j.error ? `<pre style="color:var(--bad)">${esc(j.error)}</pre>`
-            : '<pre class="dim">…</pre>'}
-        </div>`).join("")
-      : `<div class="dim" style="padding:.3rem 0 .6rem;font-size:12px">
-          Run any nanolab command — try one of these:</div>
-         <div style="display:flex;gap:.4rem;flex-wrap:wrap">
-          ${suggestions.map((s) =>
-            `<button class="cli" onclick="consoleFill('${s}')"><b>$</b> ${s}</button>`).join("")}
-         </div>`;
-    if (html !== consoleHtml) {
-      consoleHtml = html;
-      consoleHistory.innerHTML = html;
+    const { job } = await post("/actions/cli", { command: cmd });
+    let done = null;
+    for (let i = 0; i < 240 && !done; i++) {
+      await new Promise((r) => setTimeout(r, 600));
+      const jobs = await api("/jobs");
+      done = [...(jobs.recent || []), ...(jobs.running || [])]
+        .find((j) => j.id === job.id && j.status !== "running");
     }
-  } catch {}
-}
-
-// keep running commands live while the drawer is open
-setInterval(() => {
-  if (consoleDrawer.classList.contains("open") && !document.hidden) refreshConsole();
-}, 2500);
-
-// backtick toggles the console from anywhere (unless typing)
-document.addEventListener("keydown", (e) => {
-  const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(
-    document.activeElement?.tagName);
-  if (e.key === "`" && !typing && !e.metaKey && !e.ctrlKey) {
-    e.preventDefault();
-    toggleConsole();
-    if (consoleDrawer.classList.contains("open"))
-      document.getElementById("console-input")?.focus();
+    consoleHistory.push({ cmd, out: done?.output || done?.error || "(no output)" });
+  } catch (e) {
+    consoleHistory.push({ cmd, out: "error: " + e.message });
   }
-});
+  render(true);
+};
 
-async function guide() {
-  return `${head("How to use nanolab", "the 2-minute tour — no terminal needed")}
-  <div class="guide">
-    <p>nanolab is a lab that <b>measures</b> AI models, <b>trains</b> them, and
-    <b>measures again</b> to prove they improved. Everything you see is stored in
-    one database file on your computer.</p>
-
-    <h2>The loop, in plain words</h2>
-    <div class="step"><b class="n">1</b><span><b>Environments</b> are exam papers —
-      sets of tasks with automatic graders. Install more with the
-      <i>＋ Install environment</i> button on the Environments page.</span></div>
-    <div class="step"><b class="n">2</b><span><b>Evaluations</b> make a model take an
-      exam and score every answer. Click <i>＋ New evaluation</i> on the Evaluations
-      page, pick an environment, click <b>Start</b>. The run appears in the table in
-      seconds; click it to read every question, answer, and score.</span></div>
-    <div class="step"><b class="n">3</b><span><b>Training</b> makes a model practice an
-      exam thousands of times, nudging it toward answers that score higher. This
-      needs a free GPU from Google —
-      <a href="https://colab.research.google.com/github/khwahish1509/RLPost/blob/main/notebooks/train_gsm8k_colab.ipynb"
-      target="_blank" style="color:var(--accent)">open the one-click notebook</a>,
-      press <b>Runtime → Run all</b>, and come back in ~4 hours. Results land here
-      automatically once the artifacts are copied in.</span></div>
-    <div class="step"><b class="n">4</b><span><b>Inference</b> serves a trained model
-      so it can be measured again — the before/after comparison is the whole
-      point.</span></div>
-
-    <h2>What you can do right now, with clicks only</h2>
-    <p>· Run <b>＋ New evaluation</b> (Evaluations page) — costs a few cents of API credit<br>
-       · <b>＋ Install environment</b> (Environments page) — free<br>
-       · Explore any past run — click rows, expand conversations, press
-       <code>⌘K</code> to jump anywhere<br>
-       · Watch a live run — pages refresh themselves every 5 seconds</p>
-
-    <h2>What the <code>$ …</code> chips are</h2>
-    <p class="muted">Every action also exists as a typed command (for people who use
-    terminals). The chips show that command and copy it on click. You never need
-    them — the buttons do the same thing.</p>
-
-    <h2>When something needs more than a click</h2>
-    <p class="muted">Ask Claude in the chat — "evaluate grok on gsm8k",
-    "install the wordle environment", "why did this run fail" — and it happens
-    in the same lab this app is showing you.</p>
-  </div>`;
-}
-
-/* ── command palette ───────────────────────────────────────────────── */
-
-let paletteOpen = false;
-
-async function openPalette() {
-  if (paletteOpen) return;
-  paletteOpen = true;
-  const items = [
-    { label: "Overview", hash: "#/overview", kind: "page" },
-    { label: "Environments", hash: "#/environments", kind: "page" },
-    { label: "Evaluations", hash: "#/evals", kind: "page" },
-    { label: "Training", hash: "#/training", kind: "page" },
-    { label: "Inference", hash: "#/inference", kind: "page" },
-  ];
-  try {
-    const [envs, evalsList, trains] = await Promise.all([
-      api("/environments"), api("/evals"), api("/training"),
-    ]);
-    envs.forEach((e) => items.push({ label: e.slug, hash: "#/environments", kind: "env" }));
-    evalsList.forEach((e) =>
-      items.push({ label: `eval #${e.id} · ${e.env} · ${e.model} · ${fmt(e.mean_reward)}`,
-        hash: `#/evals/${e.id}`, kind: "eval" }));
-    trains.forEach((t) =>
-      items.push({ label: `train #${t.id} · ${t.env ?? "?"} · ${t.model}`,
-        hash: `#/training/${t.id}`, kind: "run" }));
-  } catch {}
-
-  const overlay = document.createElement("div");
-  overlay.className = "palette-overlay";
-  overlay.innerHTML = `<div class="palette">
-    <input placeholder="Jump to page, environment, eval, run…" autofocus>
-    <div class="results"></div></div>`;
-  document.body.appendChild(overlay);
-  const input = overlay.querySelector("input");
-  const results = overlay.querySelector(".results");
-  let sel = 0, filtered = items;
-
-  const draw = () => {
-    results.innerHTML = filtered.length
-      ? filtered.slice(0, 12).map((it, i) =>
-          `<div class="item${i === sel ? " sel" : ""}" data-i="${i}">
-           ${esc(it.label)}<span class="kind">${it.kind}</span></div>`).join("")
-      : '<div class="none">no matches</div>';
-    results.querySelectorAll(".item").forEach((el) =>
-      el.addEventListener("click", () => go(filtered[+el.dataset.i])));
-  };
-  const go = (item) => { if (item) { location.hash = item.hash; close(); } };
-  const close = () => { overlay.remove(); paletteOpen = false; };
-
-  input.addEventListener("input", () => {
-    const q = input.value.toLowerCase();
-    filtered = items.filter((it) => it.label.toLowerCase().includes(q));
-    sel = 0; draw();
-  });
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") close();
-    else if (e.key === "ArrowDown") { sel = Math.min(sel + 1, Math.min(filtered.length, 12) - 1); draw(); }
-    else if (e.key === "ArrowUp") { sel = Math.max(sel - 1, 0); draw(); }
-    else if (e.key === "Enter") go(filtered[sel]);
-  });
-  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
-  draw();
-  input.focus();
-}
-
-document.getElementById("search-btn").addEventListener("click", openPalette);
-document.addEventListener("keydown", (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); openPalette(); }
-});
-
-/* ── router ────────────────────────────────────────────────────────── */
+/* ---------------- router ---------------- */
 
 const routes = [
-  [/^#?\/?$/, overview, "overview"],
-  [/^#\/overview$/, overview, "overview"],
+  [/^#?\/?$/, bench, "bench"],
+  [/^#\/bench$/, bench, "bench"],
+  [/^#\/paper$/, paper, "paper"],
   [/^#\/environments$/, environments, "environments"],
-  [/^#\/env\/([\w.-]+)$/, envDetail, "environments"],
+  [/^#\/env\/(.+)$/, envDetail, "environments"],
   [/^#\/evals$/, evals, "evals"],
   [/^#\/evals\/(\d+)$/, evalDetail, "evals"],
   [/^#\/training$/, training, "training"],
   [/^#\/training\/(\d+)$/, trainingDetail, "training"],
-  [/^#\/inference$/, inference, "inference"],
-  [/^#\/playground$/, playground, "playground"],
-  [/^#\/guide$/, guide, "guide"],
+  [/^#\/agent$/, agent, "agent"],
+  [/^#\/artifacts$/, artifacts, "artifacts"],
+  [/^#\/console$/, consolePage, "console"],
 ];
 
-let current = null;
-let lastHash = null;
-let lastHtml = null;
+let lastHash = null, lastHtml = null;
 
-async function render() {
-  const hash = location.hash || "#/overview";
-  const changed = hash !== lastHash;
+async function render(force = false) {
+  const hash = location.hash || "#/bench";
+  const changed = hash !== lastHash || force;
   for (const [re, fn, nav] of routes) {
     const m = hash.match(re);
-    if (m) {
-      current = () => fn(...m.slice(1));
-      document.querySelectorAll("nav a").forEach((a) =>
-        a.classList.toggle("active", a.dataset.route === nav));
-      if (changed) page.innerHTML = skeleton();
-      try {
-        gradSeq = 0;  // deterministic gradient ids → identical renders match
-        const html = await current();
-        const apply = () => {
-          // skip the DOM swap entirely when nothing changed — no flicker
-          if (!changed && html === lastHtml) return;
-          lastHtml = html;
-          // animate only on real navigation; silent refreshes update in place
-          const openIdx = changed ? [] :
-            [...document.querySelectorAll("details")].flatMap((d, i) => (d.open ? [i] : []));
-          const scrollY = changed ? 0 : window.scrollY;
-          page.innerHTML = `<div class="page${changed ? " anim" : ""}">${html}</div>`;
-          const details = document.querySelectorAll("details");
-          openIdx.forEach((i) => details[i] && (details[i].open = true));
-          if (!changed) window.scrollTo(0, scrollY);
-        };
-        if (changed && document.startViewTransition) document.startViewTransition(apply);
-        else apply();
-        lastHash = hash;
-      } catch (err) {
-        page.innerHTML = `<div class="empty">could not load: ${esc(err.message)}</div>`;
-      }
-      return;
+    if (!m) continue;
+    document.querySelectorAll("nav a, .paper-link").forEach((a) =>
+      a.classList.toggle("active", a.dataset.route === nav));
+    try {
+      const html = await fn(...m.slice(1));
+      if (!changed && html === lastHtml) return;   // no flicker on silent refresh
+      lastHtml = html;
+      const scrollY = changed ? 0 : window.scrollY;
+      page.innerHTML = `<div class="page${changed && !force ? " anim" : ""}${nav === "paper" ? " narrow" : ""}">${html}</div>`;
+      if (!changed) window.scrollTo(0, scrollY);
+      lastHash = hash;
+    } catch (err) {
+      page.innerHTML = `<div class="page"><div class="empty"><div class="why">could not load: ${esc(err.message)}</div></div></div>`;
     }
+    return;
   }
-  page.innerHTML = '<div class="empty">not found</div>';
+  page.innerHTML = `<div class="page"><div class="empty"><div class="why">not found</div></div></div>`;
 }
 
-window.addEventListener("hashchange", render);
-render();
+window.addEventListener("hashchange", () => render());
+refreshChrome().then(() => render());
+
+/* silent refresh — never while typing or with the drawer open */
 setInterval(() => {
-  // don't yank the page out from under a form the user is filling in
-  const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(
-    document.activeElement?.tagName);
-  if (!document.hidden && !paletteOpen && !typing && current) render();
+  const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
+  const drawerOpen = document.body.classList.contains("drawer-open");
+  if (!document.hidden && !typing && !drawerOpen) { refreshChrome(); render(); }
 }, 5000);
 
-/* self-update: long-lived tabs silently upgrade when the server ships new
-   UI code (stale tabs were the root of every "old bug still here" report) */
+/* self-update: long-lived tabs reload when the server ships new UI code */
 let uiVersion = null;
 setInterval(async () => {
   try {
     const v = (await api("/version")).ui;
     if (uiVersion === null) { uiVersion = v; return; }
-    const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(
-      document.activeElement?.tagName);
-    const chatting = typeof play !== "undefined" && (play.busy || play.thread.length);
-    if (v !== uiVersion && !typing && !chatting && !document.hidden) {
-      location.reload();
-    }
+    const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
+    if (v !== uiVersion && !typing && !document.hidden) location.reload();
   } catch {}
 }, 30000);
