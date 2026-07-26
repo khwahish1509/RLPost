@@ -103,6 +103,17 @@ CREATE TABLE IF NOT EXISTS deployments (
     status      TEXT NOT NULL DEFAULT 'running',  -- running|stopped|dead
     created_at  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS agent_sessions (
+    id            INTEGER PRIMARY KEY,
+    writer        TEXT NOT NULL DEFAULT 'trained',  -- trained|prompted|none
+    notebook      TEXT NOT NULL DEFAULT '',
+    messages_json TEXT NOT NULL DEFAULT '[]',       -- full transcript for display
+    turns         INTEGER NOT NULL DEFAULT 0,
+    scribe_state  TEXT NOT NULL DEFAULT 'idle',     -- idle|rewriting|error:<msg>
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+);
 """
 
 

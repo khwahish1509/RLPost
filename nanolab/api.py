@@ -653,6 +653,45 @@ def build_app():
         JOBS[:] = [j for j in JOBS if j["id"] != jid]
         return JSONResponse({"dismissed": jid})
 
+    # ---- the Memory Agent (v0.3): amnesiac chat + scribe-maintained notebook
+
+    async def agent_state(request):
+        from starlette.concurrency import run_in_threadpool
+
+        from . import agent as agent_mod
+
+        return JSONResponse(await run_in_threadpool(agent_mod.current_session))
+
+    async def action_agent_chat(request):
+        from starlette.concurrency import run_in_threadpool
+
+        from . import agent as agent_mod
+
+        body = await request.json()
+        try:
+            session = await run_in_threadpool(
+                agent_mod.chat_turn, body.get("message") or ""
+            )
+        except agent_mod.AgentError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        except Exception as exc:
+            return JSONResponse({"error": f"turn failed: {exc}"}, status_code=502)
+        return JSONResponse(session)
+
+    async def action_agent_writer(request):
+        from . import agent as agent_mod
+
+        body = await request.json()
+        try:
+            return JSONResponse(agent_mod.set_writer(body.get("writer") or ""))
+        except agent_mod.AgentError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+    async def action_agent_reset(request):
+        from . import agent as agent_mod
+
+        return JSONResponse(agent_mod.reset_session())
+
     async def action_eval(request):
         body = await request.json()
         env = (body.get("env") or "").strip()
@@ -759,6 +798,10 @@ def build_app():
             Route("/api/actions/cli", action_cli, methods=["POST"]),
             Route("/api/actions/chat", action_chat, methods=["POST"]),
             Route("/api/actions/dismiss-job", action_dismiss_job, methods=["POST"]),
+            Route("/api/agent", agent_state),
+            Route("/api/actions/agent-chat", action_agent_chat, methods=["POST"]),
+            Route("/api/actions/agent-writer", action_agent_writer, methods=["POST"]),
+            Route("/api/actions/agent-reset", action_agent_reset, methods=["POST"]),
             Route("/api/actions/eval", action_eval, methods=["POST"]),
             Route("/api/actions/install", action_install, methods=["POST"]),
             Route("/api/actions/deploy", action_deploy, methods=["POST"]),

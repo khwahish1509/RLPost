@@ -330,7 +330,7 @@ async function bench() {
         `<tr><td colspan="5"><div class="aside-note">none yet</div></td></tr>`}</table>
     </div>`;
 }
-window.dismissJob = async (id) => { try { await post("/actions/dismiss-job", { job_id: id }); } catch {} };
+window.dismissJob = async (id) => { try { await post("/actions/dismiss-job", { id }); } catch {} };
 
 /* THE PAPER — the lab's findings as a living article. The narrative is
    curated; every number footnotes to live db rows via the receipts drawer. */
@@ -601,44 +601,115 @@ async function trainingDetail(id) {
       <span class="cmd">nanolab eval run &lt;env&gt; -m base:adapter-id</span></p></div>` : ""}`;
 }
 
-/* Memory Agent — honest state: the finding is real (shown from live db rows),
-   the interactive engine ships next. No fake chat. */
+/* Memory Agent (v0.3) — the experiment, interactive. The assistant is
+   amnesiac by construction: notebook + newest message is ALL it sees. A
+   no-memory control answers alongside, so the notebook's value is visible
+   per turn, not asserted. */
+let agentBusy = false;
+
 async function agent() {
-  let notebook = "", notebookMeta = "";
-  try {
-    const d = await api("/evals/24");
-    const roll = d?.rollouts?.[0];
-    const msgs = Array.isArray(roll?.completion) ? roll.completion : [];
-    const last = [...msgs].reverse().find((m) => m.role === "assistant");
-    if (last) {
-      notebook = String(last.content || "");
-      notebookMeta = `${notebook.length}/400 chars · rewritten by the trained scribe · EVAL #24, stream 0`;
-    }
-  } catch { /* fresh lab: section simply doesn't render */ }
+  const s = await api("/agent");
+  const writerBtn = (w, label) => `
+    <button class="btn sm ${s.writer === w ? "" : "ghost"}"
+      onclick="setWriter('${w}')">${label}</button>`;
+
+  const msgs = (s.messages || []).map((m) => {
+    if (m.role === "user")
+      return `<div class="msg user"><div class="role">you</div><pre>${esc(m.content)}</pre></div>`;
+    const control = m.control ? `
+      <details class="control"><summary>no-memory control said…</summary>
+        <pre>${esc(m.control)}</pre></details>` : "";
+    return `<div class="msg assistant"><div class="role">agent · writer: ${esc(m.writer || "?")}</div>
+      <pre>${esc(m.content)}</pre>${control}</div>`;
+  }).join("");
+
+  const scribeState =
+    s.scribe_state === "rewriting"
+      ? `<span class="rec"><span class="dot"></span>SCRIBE REWRITING</span>`
+      : s.scribe_state?.startsWith("error")
+        ? `<span class="status error">${esc(s.scribe_state)}</span>`
+        : s.writer === "trained" && !s.scribe_ready
+          ? `<span class="status">scribe server loads on first turn (~15s)</span>`
+          : "";
+
+  const pct = Math.min(100, Math.round(((s.notebook || "").length / 400) * 100));
+
   return `
-    <div class="kicker">ROOMS · MEMORY AGENT</div>
+    <div class="kicker">ROOMS · MEMORY AGENT · SESSION #${s.id} · TURN ${s.turns}</div>
     <h1>Memory Agent</h1><hr class="page-rule">
-    <p class="lede">An assistant whose only memory is a capped notebook, rewritten after
-    every exchange by the trained Scribe — the model this lab taught to choose what to
-    remember. The agent itself is an experiment: switch the memory writer and the lift
-    recomputes against a no-memory control.</p>
-    ${verdictBlock("The memory writer this room will use, measured.",
-      "0.548", "1.000", "prompted vs trained scribe · 12/12 held-out streams",
-      { evalFrom: 22, evalTo: 24, small: true })}
-    ${notebook ? `
-    <div class="section">
-      <div class="sec-head"><span class="sec-no">THE NOTEBOOK</span><h2>A real one, from the db</h2></div>
-      <div class="convo"><div class="msg assistant"><div class="role">trained scribe · final rewrite</div>
-        <pre>${esc(notebook)}</pre></div></div>
-      <p class="aside-note">${esc(notebookMeta)} — zero junk lines kept. This is the actual
-      artifact behind the 1.000${foot(24)}, not a mockup.</p>
-    </div>` : ""}
-    <div class="empty">
-      <div class="why">The interactive engine — chat + live notebook rewriting + lift meter —
-      is the next build (v0.3). The trained scribe adapter it will use is already on disk.</div>
-      <span class="cmd">adapters/scribe_s2/step00029</span>
+    <p class="lede" style="font-size:16.5px">The assistant remembers <i>nothing</i> between
+    turns except the notebook — rewritten after every exchange by the writer you choose.
+    The trained scribe is the model this lab taught: 0.548 → 1.000${foot(24)} on held-out
+    memory streams. Tell it things; come back later; see what survived.</p>
+
+    <div style="display:flex; gap:8px; align-items:center; margin:16px 0; flex-wrap:wrap">
+      <span class="mono" style="font-size:10.5px; letter-spacing:.1em; color:var(--dim)">MEMORY WRITER</span>
+      ${writerBtn("trained", "Trained Scribe")}
+      ${writerBtn("prompted", "Prompted (API)")}
+      ${writerBtn("none", "None")}
+      <span style="flex:1"></span>
+      ${scribeState}
+      <button class="btn sm ghost" onclick="resetAgent()">New session</button>
+    </div>
+
+    <div class="agent-grid">
+      <div class="agent-chat">
+        <div class="convo agent-log" id="agent-log">
+          ${msgs || `<div class="msg"><div class="role">how to use</div>
+            <pre>Tell it a few facts. Each reply is written from the notebook
+alone — the collapsed line under each answer shows what a
+no-memory control would have said instead.</pre></div>`}
+        </div>
+        <form class="console-bar" onsubmit="agentSend(event)">
+          <input id="agent-in" autocomplete="off" spellcheck="false"
+            placeholder="${agentBusy ? "thinking…" : "say something worth remembering"}"
+            ${agentBusy ? "disabled" : ""}>
+          <button class="btn" type="submit" ${agentBusy ? "disabled" : ""}>Send</button>
+        </form>
+      </div>
+      <div class="agent-side">
+        <div class="notebook-card">
+          <div class="nb-head"><span>THE NOTEBOOK</span>
+            <span class="mono">${(s.notebook || "").length}/400</span></div>
+          <div class="nb-meter"><div style="width:${pct}%"></div></div>
+          <pre class="nb-body">${esc(s.notebook || "(empty — nothing recorded yet)")}</pre>
+          <div class="nb-foot">full rewrite each turn · cap enforced in code ·
+            writer: ${esc(s.writer)}</div>
+        </div>
+        <p class="aside-note" style="font-size:13.5px; margin-top:14px">
+          This is the same 400-char budget the scribe trained under. Memory
+          persists in the db — restart the app and the notebook survives.</p>
+      </div>
     </div>`;
 }
+window.setWriter = async (w) => {
+  try { await post("/actions/agent-writer", { writer: w }); render(true); }
+  catch (e) { toast(e.message, 4000); }
+};
+window.resetAgent = async () => {
+  try { await post("/actions/agent-reset", {}); render(true); }
+  catch (e) { toast(e.message, 4000); }
+};
+window.agentSend = async (ev) => {
+  ev.preventDefault();
+  const inp = $("#agent-in");
+  const text = inp.value.trim();
+  if (!text || agentBusy) return;
+  agentBusy = true;
+  inp.value = "";
+  inp.placeholder = "thinking…";
+  inp.disabled = true;
+  try {
+    await post("/actions/agent-chat", { message: text });
+  } catch (e) {
+    toast("turn failed: " + e.message, 6000);
+  }
+  agentBusy = false;
+  await render(true);
+  const log = $("#agent-log");
+  if (log) log.scrollTop = log.scrollHeight;
+  $("#agent-in")?.focus();
+};
 
 async function artifacts() {
   const [adapters, deployments] = await Promise.all([api("/adapters"), api("/deployments")]);
@@ -754,6 +825,8 @@ async function render(force = false) {
       const scrollY = changed ? 0 : window.scrollY;
       page.innerHTML = `<div class="page${changed && !force ? " anim" : ""}${nav === "paper" ? " narrow" : ""}">${html}</div>`;
       if (!changed) window.scrollTo(0, scrollY);
+      const log = $("#agent-log");           // chat logs stay pinned to the newest turn
+      if (log) log.scrollTop = log.scrollHeight;
       lastHash = hash;
     } catch (err) {
       page.innerHTML = `<div class="page"><div class="empty"><div class="why">could not load: ${esc(err.message)}</div></div></div>`;
