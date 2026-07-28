@@ -74,7 +74,7 @@ def _hub(search: str = "", sort: str = "stars", page: int = 1) -> dict:
         conn.close()
 
     cmd = ["prime", "env", "list", "--output", "json", "--sort", sort,
-           "--num", "24", "--page", str(page)]
+           "--num", "48", "--page", str(page)]
     if search:
         cmd += ["--search", search]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -88,6 +88,83 @@ def _hub(search: str = "", sort: str = "stars", page: int = 1) -> dict:
     for e in envs:
         e["installed"] = e.get("environment") in installed
     return {"environments": envs, "page": page}
+
+
+# hub detail pages hit the network through the prime CLI (seconds per call) —
+# cache aggressively; hub content changes rarely
+_HUB_CACHE: dict[str, object] = {}
+
+
+def _prime_inspect(slug: str, path: str = "") -> str:
+    """Raw `prime env inspect` output for a hub env (file listing or one file)."""
+    key = f"inspect:{slug}:{path}"
+    if key in _HUB_CACHE:
+        return _HUB_CACHE[key]  # type: ignore[return-value]
+    cmd = ["prime", "env", "inspect", slug] + ([path] if path else [])
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or proc.stdout or "inspect failed").strip()[-200:])
+    out = proc.stdout
+    _HUB_CACHE[key] = out
+    return out
+
+
+def _hub_files(slug: str) -> list[dict]:
+    """Parse the inspect table into a plain file list (dirs excluded)."""
+    import re
+
+    files = []
+    for line in _prime_inspect(slug).splitlines():
+        m = re.match(r"\s*│\s*(file|dir)\s*│\s*(\S+)\s*│\s*([\d.]+\s*\w+|-)\s*│", line)
+        if m and m.group(1) == "file":
+            files.append({"name": m.group(2), "size": m.group(3)})
+    return files
+
+
+def _hub_file_content(slug: str, path: str) -> str:
+    """One file's contents; inspect prints a short header before the body."""
+    out = _prime_inspect(slug, path)
+    lines = out.splitlines()
+    # skip the echo header (blank / slug@version / path) the CLI prepends
+    start = 0
+    for i, line in enumerate(lines[:6]):
+        if line.strip() == path or line.strip().endswith(f"@latest"):
+            start = i + 1
+    return "\n".join(lines[start:]).strip()
+
+
+def _hub_detail(owner: str, name: str) -> dict:
+    """GitHub-style detail for a hub env, no install required."""
+    slug = f"{owner}/{name}"
+    conn = db.connect()
+    try:
+        installed = conn.execute(
+            "SELECT 1 FROM environments WHERE slug=?", (slug,)
+        ).fetchone() is not None
+    finally:
+        conn.close()
+    listing = _hub(search=name)  # carries description/stars/tags/version
+    meta = next(
+        (e for e in listing.get("environments", []) if e.get("environment") == slug),
+        {},
+    )
+    files = _hub_files(slug)
+    readme = ""
+    if any(f["name"].lower() == "readme.md" for f in files):
+        try:
+            readme = _hub_file_content(slug, "README.md")
+        except RuntimeError:
+            readme = ""
+    return {
+        "slug": slug,
+        "installed": installed,
+        "description": meta.get("description", ""),
+        "stars": meta.get("stars"),
+        "tags": meta.get("tags", []),
+        "version": meta.get("version", ""),
+        "files": files,
+        "readme": readme,
+    }
 
 
 def _configs() -> list[dict]:
@@ -485,6 +562,24 @@ def build_app():
             data = {"error": str(exc)[:200], "environments": []}
         return JSONResponse(data)
 
+    async def hub_detail(request):
+        p = request.path_params
+        try:
+            return JSONResponse(_hub_detail(p["owner"], p["name"]))
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)[:200]}, status_code=502)
+
+    async def hub_file(request):
+        p = request.path_params
+        path = request.query_params.get("path", "")
+        if not path or "/" in path or path.startswith("."):
+            return JSONResponse({"error": "bad path"}, status_code=400)
+        try:
+            content = _hub_file_content(f'{p["owner"]}/{p["name"]}', path)
+            return JSONResponse({"path": path, "content": content[:200_000]})
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)[:200]}, status_code=502)
+
     async def jobs(request):
         return JSONResponse(JOBS)
 
@@ -781,6 +876,8 @@ def build_app():
             Route("/api/overview", endpoint(_overview)),
             Route("/api/environments", endpoint(_environments)),
             Route("/api/hub", hub),
+            Route("/api/hub/{owner:str}/{name:str}", hub_detail),
+            Route("/api/hub/{owner:str}/{name:str}/file", hub_file),
             Route("/api/environments/{env_id:str}", endpoint(_environment_detail)),
             Route("/api/evals", endpoint(_evals)),
             Route("/api/evals/{run_id:int}", endpoint(_eval_detail)),

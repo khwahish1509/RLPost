@@ -4,39 +4,44 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>nanolab</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50' y='72' font-size='64' text-anchor='middle' font-family='Georgia,serif'%3En%3C/text%3E%3C/svg%3E">
-<!-- Newsreader loads from Google Fonts when online; Georgia carries it offline -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230B0C0E'/%3E%3Ctext x='50' y='70' font-size='56' text-anchor='middle' font-family='monospace' fill='%23B7F542'%3En%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body>
 <div class="shell">
-  <header class="masthead">
-    <a class="word" href="#/bench">nanolab</a>
-    <div class="strip" id="strip"></div>
-    <div class="mast-right">
-      <span class="rec" id="rec" style="display:none"><span class="dot"></span>RECORDING</span>
-      <a class="paper-link" href="#/paper" data-route="paper">READ THE PAPER</a>
-    </div>
-  </header>
-  <div class="body">
-    <aside class="sidebar">
-      <div class="rooms-label">ROOMS</div>
-      <nav>
-        <a href="#/bench" data-route="bench">The Bench</a>
-        <a href="#/environments" data-route="environments">Environments</a>
-        <a href="#/evals" data-route="evals">Evals</a>
-        <a href="#/training" data-route="training">Training</a>
-        <a href="#/agent" data-route="agent">Memory Agent</a>
-        <a href="#/artifacts" data-route="artifacts">Artifacts</a>
-        <a href="#/console" data-route="console">Console</a>
-      </nav>
-      <div class="sidebar-footer" id="side-foot"></div>
-    </aside>
+  <aside class="sidebar">
+    <a class="word" href="#/home">nano<span>lab</span></a>
+    <nav>
+      <a href="#/home" data-route="home">Home</a>
+      <a href="#/tasks" data-route="tasks">Tasks</a>
+      <a href="#/train" data-route="train">Train</a>
+      <a href="#/evals" data-route="evals">Evals</a>
+      <a href="#/memory" data-route="memory">Memory</a>
+      <a href="#/models" data-route="models">Models</a>
+      <div class="nav-sep"></div>
+      <a href="#/findings" data-route="findings">Findings</a>
+    </nav>
+    <div class="sidebar-footer" id="side-foot"></div>
+  </aside>
+  <div class="main-col">
+    <header class="topbar">
+      <div class="strip" id="strip"></div>
+      <div class="top-right">
+        <span class="rec" id="rec" style="display:none"><span class="dot"></span>TRAINING</span>
+        <button class="term-toggle" id="term-btn" title="Console (ctrl+`)" onclick="toggleConsole()">&gt;_</button>
+      </div>
+    </header>
     <main id="page"></main>
   </div>
+</div>
+
+<div id="console-panel">
+  <div class="cp-head">
+    <span class="cp-title mono">&gt;_ CONSOLE</span>
+    <span class="helper" style="margin:0">Read-only nanolab commands — click one or type. Nothing here can change data.</span>
+    <button class="d-close" style="position:static; margin-left:auto" onclick="toggleConsole()">ESC ✕</button>
+  </div>
+  <div id="console-inner"></div>
 </div>
 
 <div id="drawer-veil" onclick="closeDrawer()"></div>
