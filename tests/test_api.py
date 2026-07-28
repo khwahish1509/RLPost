@@ -349,3 +349,19 @@ def test_ui_shell_served(client):
         assert "nanolab" in response.text
     assert "sidebar" in client.get("/assets/app.css").text
     assert "router" in client.get("/assets/app.js").text
+
+
+def test_env_detail_matches_slashed_slugs(client):
+    """Installed slugs are owner/name; uvicorn decodes %2F back to / before
+    routing, so the route needs the :path converter — :str silently fell
+    through to the SPA index and the UI got HTML instead of JSON."""
+    conn = db.connect()
+    _seed(conn)
+    conn.close()
+    r = client.get("/api/environments/primeintellect%2Fgsm8k")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/json")
+    assert r.json()["slug"] == "primeintellect/gsm8k"
+    # plain single-segment slugs must keep working too
+    r2 = client.get("/api/environments/primeintellect/gsm8k")
+    assert r2.status_code == 200 and r2.json()["slug"] == "primeintellect/gsm8k"
