@@ -878,7 +878,9 @@ def build_app():
             Route("/api/hub", hub),
             Route("/api/hub/{owner:str}/{name:str}", hub_detail),
             Route("/api/hub/{owner:str}/{name:str}/file", hub_file),
-            Route("/api/environments/{env_id:str}", endpoint(_environment_detail)),
+            # :path, not :str — installed slugs contain slashes (owner/name),
+            # and uvicorn decodes %2F back to / before routing
+            Route("/api/environments/{env_id:path}", endpoint(_environment_detail)),
             Route("/api/evals", endpoint(_evals)),
             Route("/api/evals/{run_id:int}", endpoint(_eval_detail)),
             Route("/api/training", endpoint(_training)),
