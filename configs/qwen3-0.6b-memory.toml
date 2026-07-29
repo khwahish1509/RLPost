@@ -1,0 +1,33 @@
+# S3: train the Scribe on CONVERSATIONAL memory (memory-stream), the jump from
+# arithmetic transcription to real language. Each episode: multi-session user
+# dialogue → capped notebook rewrites → frozen reader answers held-out
+# questions from the notebook alone. Reward = Lift (Mem-α's downstream-QA
+# reward, our design). The question mix punishes lazy strategies: updates
+# kill append-only notes, abstention traps kill sloppy attribution, the cap
+# kills copy-everything.
+#
+# Sized for Kaggle's ~12h GPU wall (the S2 lesson): 30 steps, checkpoint
+# every 5 — the peak is recoverable even if the wall hits.
+
+model = "Qwen/Qwen3-0.6B"
+max_steps = 30
+batch_size = 4           # streams per step; each episode = 4 scribe turns
+rollouts_per_example = 4
+learning_rate = 5e-5     # the lr that trained clean twice (gsm8k run 3, S2)
+checkpoint_every = 5
+seed = 0
+max_new_tokens = 512
+temperature = 1.0
+micro_batch_size = 1
+enable_thinking = false
+# Lift can start NEGATIVE here (untrained notes keep traps/stale values that
+# actively mislead the reader) — that's headroom, not absence of signal
+trainability_window = [-1.0, 0.85]
+
+[lora]
+r = 16
+alpha = 32
+
+[[env]]
+id = "memory-stream"
+args = { reader_model = "fake", num_sessions = 4, facts_per_stream = 5, updates_per_stream = 1, distractors_per_session = 3, num_questions = 6, notebook_char_cap = 600 }

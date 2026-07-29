@@ -29,6 +29,7 @@ OUTPUT_DIR = Path(".cache") / "kaggle-output"
 LOCAL_ENV_DIRS = {
     "scribe-stream": "environments/scribe_stream",
     "pattern-gym": "environments/pattern_gym",
+    "memory-stream": "environments/memory_stream",
 }
 
 
