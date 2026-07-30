@@ -79,7 +79,8 @@ class MemoryStreamEnv(vf.MultiTurnEnv):
 
 def _build_dataset(num_streams: int, seed_base: int, num_sessions: int,
                    facts_per_stream: int, updates_per_stream: int,
-                   distractors_per_session: int, num_questions: int, cap: int):
+                   distractors_per_session: int, num_questions: int, cap: int,
+                   abstentions_per_stream: int = 1):
     from datasets import Dataset
 
     rows = []
@@ -89,6 +90,7 @@ def _build_dataset(num_streams: int, seed_base: int, num_sessions: int,
             updates_per_stream=updates_per_stream,
             distractors_per_session=distractors_per_session,
             num_questions=num_questions,
+            abstentions_per_stream=abstentions_per_stream,
         )
         rows.append({
             "prompt": [
@@ -115,6 +117,8 @@ def load_environment(
     updates_per_stream: int = 1,
     distractors_per_session: int = 3,
     num_questions: int = 6,
+    abstentions_per_stream: int = 1,
+    question_weights: dict | None = None,
 ):
     reader_model = reader_model or os.environ.get("NANOLAB_READER_MODEL", "fake")
     reader_base_url = reader_base_url or os.environ.get("NANOLAB_API_BASE_URL", "")
@@ -122,20 +126,28 @@ def load_environment(
     api_key = os.environ.get(key_var, "") if key_var else ""
     reader = build_reader(reader_model, reader_base_url, api_key)
 
+    # question-type weights let a curriculum make selection failures
+    # (kept traps, stale values) expensive relative to easy fact recall
+    weights = {"fact": 1.0, "update": 1.0, "abstention": 1.0}
+    if question_weights:
+        weights.update({k: float(v) for k, v in question_weights.items()})
+
     async def lift(state) -> float:
-        """Reader accuracy with the notebook minus with an empty notebook."""
+        """Weighted reader accuracy with the notebook minus with an empty one."""
         questions = state.get("mem_questions", [])
         if not questions:
             return 0.0
         notebook = state.get("notebook", "")
-        with_notes, baseline = [], []
+        num_w = num_b = denom = 0.0
         for q in questions:
+            w = weights.get(q.get("kind", "fact"), 1.0)
+            denom += w
             r = await reader.read(q, notebook)
-            with_notes.append(bool(r.correct))
+            num_w += w * bool(r.correct)
             b = await reader.read(q, "")
-            baseline.append(bool(b.correct))
-        acc = sum(with_notes) / len(with_notes)
-        base = sum(baseline) / len(baseline)
+            num_b += w * bool(b.correct)
+        acc = num_w / denom
+        base = num_b / denom
         state["with_notes_score"] = acc
         state["baseline_score"] = base
         return acc - base
@@ -156,10 +168,10 @@ def load_environment(
         dataset=lambda: _build_dataset(
             num_train_streams, 0, num_sessions, facts_per_stream,
             updates_per_stream, distractors_per_session, num_questions,
-            notebook_char_cap),
+            notebook_char_cap, abstentions_per_stream),
         eval_dataset=lambda: _build_dataset(
             num_eval_streams, EVAL_SEED_BASE, num_sessions, facts_per_stream,
             updates_per_stream, distractors_per_session, num_questions,
-            notebook_char_cap),
+            notebook_char_cap, abstentions_per_stream),
         rubric=rubric,
     )

@@ -71,6 +71,10 @@ class TrainConfig:
     # small-model RL wants direct answers, so thinking is off by default.
     enable_thinking: bool = False
     env_args: dict = field(default_factory=dict)
+    # warm-start: load LoRA weights from a prior run's checkpoint dir before
+    # training (curriculum continuation — e.g. S3b's compression skill feeds
+    # S3c's selection curriculum). Empty = fresh adapter.
+    init_adapter: str = ""
     # trainability pre-flight window; Lift-style rewards may need a wider one
     trainability_window: tuple[float, float] = TRAINABILITY_WINDOW
     lora: LoraConfig = field(default_factory=LoraConfig)
@@ -126,6 +130,7 @@ def load_config(path: str | Path) -> TrainConfig:
         micro_batch_size=int(data.get("micro_batch_size", 8)),
         max_grad_norm=float(data.get("max_grad_norm", 1.0)),
         enable_thinking=bool(data.get("enable_thinking", False)),
+        init_adapter=str(data.get("init_adapter", "")),
         env_args=dict(envs_[0].get("args", {})),
         trainability_window=(float(window_raw[0]), float(window_raw[1])),
         lora=LoraConfig(
@@ -545,6 +550,13 @@ def train(config_path: str | Path, resume: bool = False) -> int:
     )
     if checkpoint_dir is not None:
         model = PeftModel.from_pretrained(base, checkpoint_dir, is_trainable=True)
+    elif config.init_adapter:
+        # warm-start: continue from another run's adapter (fresh optimizer)
+        init = Path(config.init_adapter)
+        if not init.is_dir():
+            raise TrainError(f"init_adapter not found: {init}")
+        print(f"warm-starting LoRA from {init}")
+        model = PeftModel.from_pretrained(base, init, is_trainable=True)
     else:
         model = get_peft_model(
             base,

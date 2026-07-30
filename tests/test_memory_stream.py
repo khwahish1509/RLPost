@@ -142,3 +142,56 @@ def test_eval_streams_are_held_out():
     eval_seeds = {r["info"]["seed"] for r in env.get_eval_dataset()}
     assert train_seeds.isdisjoint(eval_seeds)
     assert min(eval_seeds) >= EVAL_SEED_BASE
+
+
+def test_multiple_abstention_traps_and_guaranteed_updates():
+    s = generate_stream(3, updates_per_stream=2, abstentions_per_stream=2,
+                        num_questions=8)
+    kinds = [q.kind for q in s.questions]
+    assert kinds.count("abstention") == 2
+    assert kinds.count("update") == 2          # guaranteed even if sampling is unlucky
+    # traps are distinct values, none of them a real user fact
+    traps = {q.trap for q in s.questions if q.kind == "abstention"}
+    used = {v for f in s.facts for v in f.values}
+    assert len(traps) == 2 and traps.isdisjoint(used)
+    # every trap value really appears in the chat (it must be temptingly present)
+    text = "\n".join(s.sessions)
+    for t in traps:
+        assert t in text
+
+
+def test_weighted_lift_makes_traps_expensive():
+    from verifiers.types import State
+
+    def scribe_with_trap(state):
+        # keeps every real answer AND one trap line — selective except the trap
+        qs = state["mem_questions"]
+        lines = [q["answer"] for q in qs if q["kind"] != "abstention"]
+        lines += [q["trap"] for q in qs if q["kind"] == "abstention"][:1]
+        return "\n".join(lines)
+
+    def run(weights):
+        env = load_environment(reader_model="fake", num_train_streams=2,
+                               abstentions_per_stream=2, num_questions=8,
+                               question_weights=weights)
+        ds = env.get_dataset()
+        row = ds[0]
+
+        async def episode():
+            state = State.for_task(row)
+            state["trajectory"] = []
+            await env.setup_state(state)
+            messages = list(row["prompt"])
+            while state.get("final_env_response") is None:
+                messages = messages + [{"role": "assistant",
+                                        "content": scribe_with_trap(state)}]
+                messages = messages + await env.env_response(messages, state)
+            await env.rubric.score_rollout(state)
+            return state["reward"]
+
+        return asyncio.run(episode())
+
+    flat = run(None)
+    weighted = run({"abstention": 3.0})
+    # same behaviour, harsher penalty when abstention failures cost more
+    assert weighted < flat

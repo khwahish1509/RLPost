@@ -98,14 +98,19 @@ def _chatter(rng: random.Random) -> str:
     ])
 
 
+# trap kinds: attributes the USER never has, worn by someone else.
+# (question, chat line template, value pool)
+TRAP_SPECS = {
+    "dog":  ("What is my dog's name?", "{who}'s dog {v} kept barking all night.", FIRST_NAMES),
+    "boss": ("What is my boss's name?", "{who} keeps complaining about their boss {v}.", FIRST_NAMES),
+    "bike": ("Which bike do I ride?", "{who} won't stop showing off their new {v} bike.", CARS),
+}
+
+
 def _neighbor_line(rng: random.Random, trap_kind: str, trap_val: str) -> str:
     """A distractor carrying someone ELSE'S attribute — the abstention trap."""
     who = rng.choice(["my neighbor", "my coworker", "my cousin"])
-    if trap_kind == "dog":
-        return f"{who}'s dog {trap_val} kept barking all night."
-    if trap_kind == "city":
-        return f"{who} just moved to {trap_val}, lucky them."
-    return f"{who} won't stop talking about their {trap_kind} {trap_val}."
+    return TRAP_SPECS[trap_kind][1].format(who=who, v=trap_val)
 
 
 def generate_stream(
@@ -115,11 +120,17 @@ def generate_stream(
     updates_per_stream: int = 1,
     distractors_per_session: int = 3,
     num_questions: int = 6,
+    abstentions_per_stream: int = 1,
 ) -> Stream:
     rng = random.Random(f"mem:{seed}")
 
-    # --- choose the user's facts
-    keys = rng.sample(list(FACT_SPECS), facts_per_stream)
+    # --- choose the user's facts, guaranteeing enough UPDATABLE ones that
+    # the requested number of updates can actually be scheduled
+    need_upd = min(updates_per_stream, len(UPDATABLE), facts_per_stream)
+    upd_keys = rng.sample(sorted(UPDATABLE), need_upd)
+    rest = [k for k in FACT_SPECS if k not in upd_keys]
+    keys = upd_keys + rng.sample(rest, facts_per_stream - len(upd_keys))
+    rng.shuffle(keys)
     facts: list[Fact] = []
     for k in keys:
         q_tmpl, say_tmpl, pool = FACT_SPECS[k]
@@ -135,10 +146,16 @@ def generate_stream(
         new = rng.choice([v for v in pool if v != f.values[0]])
         f.values.append(new)
 
-    # --- the abstention trap: an attribute the USER never has, worn by a neighbor
-    trap_kind = "dog"
+    # --- abstention traps: attributes the USER never has, worn by others
     used = {v for f in facts for v in f.values}
-    trap_val = rng.choice([n for n in FIRST_NAMES if n not in used])
+    n_traps = max(1, min(abstentions_per_stream, len(TRAP_SPECS)))
+    trap_kinds = rng.sample(sorted(TRAP_SPECS), n_traps)
+    traps: list[tuple[str, str]] = []
+    for tk in trap_kinds:
+        pool = [v for v in TRAP_SPECS[tk][2] if v not in used]
+        tv = rng.choice(pool)
+        used.add(tv)
+        traps.append((tk, tv))
 
     # --- lay facts into sessions
     for f in facts:
@@ -159,7 +176,8 @@ def generate_stream(
                 if vi > 0:
                     line = f"update — {line.rstrip('.')} (not {f.values[vi-1]} anymore)."
                 lines.append(line)
-        lines.append(_neighbor_line(rng, trap_kind, trap_val))
+        tk, tv = traps[s % len(traps)]  # traps recur across sessions
+        lines.append(_neighbor_line(rng, tk, tv))
         for _ in range(max(0, distractors_per_session - 1)):
             lines.append(_chatter(rng))
         rng.shuffle(lines)
@@ -174,10 +192,11 @@ def generate_stream(
                                   kind="update", stale=f.values[0]))
     rng.shuffle(plain)
     for f in plain:
-        if len(questions) >= num_questions - 1:
+        if len(questions) >= num_questions - len(traps):
             break
         questions.append(Question(text=f.question, answer=f.values[-1], kind="fact"))
-    questions.append(Question(text="What is my dog's name?", answer="unknown",
-                              kind="abstention", trap=trap_val))
+    for tk, tv in traps:
+        questions.append(Question(text=TRAP_SPECS[tk][0], answer="unknown",
+                                  kind="abstention", trap=tv))
     rng.shuffle(questions)
     return Stream(seed=seed, sessions=sessions, questions=questions, facts=facts)

@@ -1,0 +1,31 @@
+# S3c: the second half of the skill — SELECTION, not just compression.
+# S3b learned to fit the budget (dense Key: Value notebooks, facts 0.87) but
+# still writes down other people's attributes (every abstention trap
+# survived) and often keeps stale values. This curriculum makes those
+# failures expensive:
+#   - TWO abstention traps per stream, recurring across sessions
+#   - 8 questions: abstention + update questions weighted 2x in the reward
+# and it WARM-STARTS from the S3b checkpoint, so training refines the
+# compression policy instead of rediscovering it from scratch.
+
+model = "Qwen/Qwen3-0.6B"
+init_adapter = "adapters/memory_s3b/step00029"
+max_steps = 30
+batch_size = 4
+rollouts_per_example = 4
+learning_rate = 5e-5
+checkpoint_every = 5
+seed = 0
+max_new_tokens = 512
+temperature = 1.0
+micro_batch_size = 1
+enable_thinking = false
+trainability_window = [-1.0, 0.85]
+
+[lora]
+r = 16
+alpha = 32
+
+[[env]]
+id = "memory-stream"
+args = { reader_model = "fake", num_sessions = 6, facts_per_stream = 5, updates_per_stream = 2, distractors_per_session = 4, num_questions = 8, abstentions_per_stream = 2, notebook_char_cap = 350, question_weights = { abstention = 2.0, update = 2.0 } }
