@@ -295,6 +295,21 @@ pre.snippet { background: #0D0E11; border: 1px solid var(--border); border-radiu
   color: var(--dim); font: 500 12.5px var(--sans); padding: 6px 13px; cursor: pointer; }
 .writer-btn.sel { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
 
+/* ---------- notebook-diff timeline ---------- */
+.turn-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r);
+  margin-bottom: 14px; overflow: hidden; }
+.turn-head { display: flex; gap: 14px; padding: 9px 15px; border-bottom: 1px solid var(--border);
+  font-size: 11px; letter-spacing: .08em; color: var(--accent); background: var(--surface2); }
+.turn-input summary { font: 11px var(--mono); color: var(--faint); cursor: pointer; padding: 8px 15px; }
+.turn-input pre { font: 12px/1.6 var(--mono); color: var(--dim); padding: 4px 15px 10px;
+  white-space: pre-wrap; word-break: break-word; }
+.diff { padding: 10px 15px 12px; font: 12.5px/1.7 var(--mono); }
+.dl { white-space: pre-wrap; word-break: break-word; padding: 1px 8px; border-radius: 4px; }
+.dl.add { color: var(--pos); background: rgba(74,222,128,.08); }
+.dl.drop { color: var(--neg); background: rgba(248,113,113,.07); text-decoration: line-through; }
+.dl.keep { color: var(--faint); }
+.cmp-armed { border-color: var(--accent) !important; color: var(--accent) !important; }
+
 /* ---------- findings (the paper, dark-adapted) ---------- */
 .narrow { max-width: 780px; margin: 0 auto; }
 .display { font-size: 34px; letter-spacing: -.03em; }

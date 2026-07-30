@@ -559,6 +559,8 @@ window.hubFile = async (slug, name) => {
 
 /* ---------------- EVALS ---------------- */
 
+let cmpPick = null;  // eval id armed as side A of a comparison
+
 async function evals() {
   const runs = await api("/evals");
   const rows = runs.map((e) => `
@@ -569,20 +571,72 @@ async function evals() {
       <td class="mono right num ${e.mean_reward >= 0.5 ? "pos" : e.mean_reward != null ? "neg" : ""}"
         title="Average grade across all runs, 0 to 1">${fnum(e.mean_reward)}${e.status === "done" ? foot(e.id) : ""}</td>
       <td class="right"><span class="status ${esc(e.status)}">${esc(e.status)}</span></td>
+      <td class="right"><button class="btn sm ghost ${cmpPick === e.id ? "cmp-armed" : ""}"
+        onclick="pickCompare(${e.id});event.stopPropagation()"
+        title="Compare this run against another">${cmpPick === e.id ? "A ✓" : "A/B"}</button></td>
     </tr>`).join("");
   return `
     <div class="room-head">
       <h1>Evaluations</h1>
       <p class="sub">Measure how well a model does on a task. Every score is backed by raw runs —
-      click any score to see them.</p>
-      <div class="actions"><button class="btn" onclick="newEvalModal()">Run evaluation</button></div>
+      click any score to see them. To compare two runs, click A/B on the first, then on the second.</p>
+      <div class="actions"><button class="btn" onclick="newEvalModal()">Run evaluation</button>
+        ${cmpPick != null ? `<span class="chip acc">comparing #${cmpPick} — pick side B</span>
+          <button class="btn sm ghost" onclick="pickCompare(null)">cancel</button>` : ""}</div>
     </div>
     ${rows ? `<table class="sheet">
-      <tr><th>EVAL</th><th>TASK</th><th>MODEL</th><th class="right">N×R</th><th class="right">SCORE</th><th class="right">STATUS</th></tr>
+      <tr><th>EVAL</th><th>TASK</th><th>MODEL</th><th class="right">N×R</th><th class="right">SCORE</th><th class="right">STATUS</th><th></th></tr>
       ${rows}</table>`
       : `<div class="empty"><div class="why">No evaluations yet. An evaluation runs a model through a task
          many times and averages the grades — pick a task and a model to get your first number.</div>
          <button class="btn" onclick="newEvalModal()">Run evaluation</button></div>`}`;
+}
+window.pickCompare = (id) => {
+  if (id == null) { cmpPick = null; render(true); return; }
+  if (cmpPick == null) { cmpPick = id; render(true); return; }
+  if (cmpPick === id) { cmpPick = null; render(true); return; }
+  const a = cmpPick; cmpPick = null;
+  location.hash = `#/evals/compare/${a}/${id}`;
+};
+
+async function evalCompare(a, b) {
+  const d = await api(`/evals/compare/${a}/${b}`);
+  if (d.error) return `<div class="empty"><div class="why">${esc(d.error)}</div></div>`;
+  const side = (s, label) => `
+    <div class="stat" style="flex:1">
+      <div class="kicker">${label} · EVAL #${s.id}</div>
+      <div style="margin:4px 0">${modelChip(s.model)}</div>
+      <div class="v num">${fnum(s.mean_reward)}${foot(s.id)}</div>
+      <div class="l">${esc(s.env)} · n=${s.num_examples}×${s.rollouts_per_example}</div>
+    </div>`;
+  const rows = d.rows.map((r) => `
+    <tr>
+      <td class="mono">${r.example}·${r.rollout}</td>
+      <td class="mono right">${fnum(r.a)}</td>
+      <td class="mono right">${fnum(r.b)}</td>
+      <td class="mono right num ${r.delta > 0 ? "pos" : r.delta < 0 ? "neg" : "dim"}">
+        ${r.delta == null ? "—" : (r.delta > 0 ? "+" : "") + fnum(r.delta)}</td>
+    </tr>`).join("");
+  const c = d.counts;
+  return `
+    <div class="kicker"><a href="#/evals">EVALS</a> · COMPARE</div>
+    <div class="room-head">
+      <h1>#${d.a.id} vs #${d.b.id}</h1>
+      <p class="sub">${d.same_env
+        ? "Same task, paired per example — each row is the same question answered by both."
+        : "⚠ Different tasks — the rows are NOT the same questions; compare means only."}</p>
+    </div>
+    <div class="stats">${side(d.a, "A")}${side(d.b, "B")}
+      <div class="stat" style="flex:1">
+        <div class="kicker">B − A</div>
+        <div class="v num ${d.delta > 0 ? "pos" : d.delta < 0 ? "neg" : ""}">${d.delta == null ? "—" : (d.delta > 0 ? "+" : "") + fnum(d.delta)}</div>
+        <div class="l">${c.better} improved · ${c.worse} regressed · ${c.same} unchanged</div>
+      </div>
+    </div>
+    <table class="sheet">
+      <tr><th>EXAMPLE</th><th class="right">A</th><th class="right">B</th><th class="right">Δ</th></tr>
+      ${rows}
+    </table>`;
 }
 
 async function evalDetail(id) {
@@ -590,11 +644,16 @@ async function evalDetail(id) {
   if (!d) return `<div class="empty"><div class="why">Eval not found.</div></div>`;
   const metrics = Object.entries(d.meta?.avg_metrics || {}).map(([k, v]) =>
     `<tr><td class="mono">${esc(k)}</td><td class="mono right num">${fnum(v)}</td></tr>`).join("");
+  const multiTurn = (d.rollouts || []).some((r) =>
+    (Array.isArray(r.completion) ? r.completion : []).filter((m) => m.role === "assistant").length > 1);
   const rollouts = (d.rollouts || []).map((r, i) => `
     <tr class="click" onclick="toggleRow(${i})">
       <td class="mono">${r.example}·${r.rollout}</td>
       <td class="mono right num ${r.reward >= 0.5 ? "pos" : "neg"}">${fnum(r.reward)}</td>
-    </tr><tr id="row-${i}" style="display:none"><td colspan="2">${convoHtml(r)}</td></tr>`).join("");
+      <td class="right">${multiTurn ? `<button class="btn sm ghost"
+        onclick="location.hash='#/evals/${d.id}/episode/${r.example}/${r.rollout}';event.stopPropagation()"
+        title="Turn-by-turn notebook timeline">timeline</button>` : ""}</td>
+    </tr><tr id="row-${i}" style="display:none"><td colspan="3">${convoHtml(r)}</td></tr>`).join("");
   return `
     <div class="kicker"><a href="#/evals">EVALS</a> · #${d.id}</div>
     <div class="room-head">
@@ -607,9 +666,44 @@ async function evalDetail(id) {
     ${metrics ? `<div class="section"><div class="sec-head"><h2>Metrics</h2></div>
       <table class="sheet"><tr><th>METRIC</th><th class="right">MEAN</th></tr>${metrics}</table></div>` : ""}
     <div class="section"><div class="sec-head"><h2>Runs</h2></div>
-      <table class="sheet"><tr><th>RUN</th><th class="right">SCORE</th></tr>${rollouts ||
-        `<tr><td colspan="2"><div class="aside-note">Runs appear here as they finish.</div></td></tr>`}</table>
+      <table class="sheet"><tr><th>RUN</th><th class="right">SCORE</th><th></th></tr>${rollouts ||
+        `<tr><td colspan="3"><div class="aside-note">Runs appear here as they finish.</div></td></tr>`}</table>
     </div>`;
+}
+
+/* the notebook-diff timeline: what the scribe kept, added, and dropped, turn
+   by turn — the trained judgment made visible instead of asserted */
+async function episodeView(runId, example, rollout) {
+  const d = await api(`/evals/${runId}/episode/${example}/${rollout}`);
+  if (d.error) return `<div class="empty"><div class="why">${esc(d.error)}</div></div>`;
+  const cards = (d.turns || []).map((t) => {
+    const added = t.added.map((l) => `<div class="dl add">+ ${esc(l)}</div>`).join("");
+    const dropped = t.dropped.map((l) => `<div class="dl drop">− ${esc(l)}</div>`).join("");
+    const kept = t.kept.map((l) => `<div class="dl keep">${esc(l)}</div>`).join("");
+    return `
+    <div class="turn-card">
+      <div class="turn-head">
+        <span class="mono">TURN ${t.turn}</span>
+        <span class="mono dim">${t.chars} chars</span>
+        <span class="mono dim">+${t.added.length} · −${t.dropped.length} · =${t.kept.length}</span>
+      </div>
+      ${t.input ? `<details class="turn-input"><summary>what the user said</summary>
+        <pre>${esc(t.input)}</pre></details>` : ""}
+      <div class="diff">${added}${dropped}${kept ||
+        (!added && !dropped ? `<div class="dl keep dim">(unchanged)</div>` : "")}</div>
+    </div>`;
+  }).join("");
+  return `
+    <div class="kicker"><a href="#/evals">EVALS</a> ·
+      <a href="#/evals/${esc(String(runId))}">#${esc(String(runId))}</a> · EPISODE ${esc(String(example))}·${esc(String(rollout))}</div>
+    <div class="room-head">
+      <h1>Notebook timeline</h1>
+      <p class="sub">${modelChip(d.model)} on ${esc(d.env)} — score ${fnum(d.reward)}.
+      Each turn shows what the scribe <span class="pos">added</span>,
+      <span class="neg">dropped</span>, and kept. Good memory is visible as
+      short notebooks that add facts and drop noise.</p>
+    </div>
+    ${cards || `<div class="empty"><div class="why">No turns recorded in this rollout.</div></div>`}`;
 }
 window.toggleRow = (i) => {
   const el = $(`#row-${i}`);
@@ -1159,6 +1253,8 @@ const routes = [
   [/^#\/train$/, train, "train"],
   [/^#\/train\/(\d+)$/, trainDetail, "train"],
   [/^#\/evals$/, evals, "evals"],
+  [/^#\/evals\/compare\/(\d+)\/(\d+)$/, evalCompare, "evals"],
+  [/^#\/evals\/(\d+)\/episode\/(\d+)\/(\d+)$/, episodeView, "evals"],
   [/^#\/evals\/(\d+)$/, evalDetail, "evals"],
   [/^#\/memory$/, memory, "memory"],
   [/^#\/models$/, models, "models"],

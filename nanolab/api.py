@@ -395,6 +395,123 @@ def _evals() -> list[dict]:
     return runs
 
 
+def _episode_turns(run_id: int, example: int = 0, rollout: int = 0) -> dict:
+    """One multi-turn episode as a timeline of notebook rewrites.
+
+    For memory/scribe environments the assistant turns ARE the notebook, so
+    consecutive turns diff line-by-line into kept / added / dropped. That
+    makes the trained model's judgment visible instead of asserted.
+    """
+    conn = db.connect()
+    try:
+        row = conn.execute(
+            "SELECT s.prompt_json, s.completion_json, s.reward, e.model,"
+            " v.slug AS env FROM samples s JOIN eval_runs e ON e.id = s.eval_run_id"
+            " JOIN environments v ON v.id = e.env_id WHERE s.eval_run_id = ?"
+            " AND s.example_index = ? AND s.rollout_index = ?",
+            (run_id, example, rollout)).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return {"error": "no such rollout"}
+
+    def text(m):
+        c = m.get("content") if isinstance(m, dict) else None
+        return c if isinstance(c, str) else json.dumps(c)
+
+    prompt = json.loads(row["prompt_json"] or "[]")
+    completion = json.loads(row["completion_json"] or "[]")
+    msgs = [m for m in (prompt + completion) if isinstance(m, dict)]
+
+    turns, prev_lines = [], []
+    pending_input = ""
+    for m in msgs:
+        role = m.get("role")
+        if role in ("user", "system"):
+            if role == "user":
+                pending_input = text(m)
+            continue
+        if role != "assistant":
+            continue
+        nb = text(m) or ""
+        lines = [ln.strip() for ln in nb.splitlines() if ln.strip()]
+        prev_set, cur_set = set(prev_lines), set(lines)
+        turns.append({
+            "turn": len(turns) + 1,
+            "input": pending_input,
+            "notebook": nb,
+            "chars": len(nb),
+            "kept": [ln for ln in lines if ln in prev_set],
+            "added": [ln for ln in lines if ln not in prev_set],
+            "dropped": [ln for ln in prev_lines if ln not in cur_set],
+        })
+        prev_lines = lines
+        pending_input = ""
+    return {"run_id": run_id, "example": example, "rollout": rollout,
+            "model": row["model"], "env": row["env"], "reward": row["reward"],
+            "turns": turns}
+
+
+def _eval_compare(run_a: int, run_b: int) -> dict:
+    """Two eval runs side by side, paired per example — the A/B view.
+
+    Pairing is by example_index (same dataset order = same task), so a diff
+    row is genuinely the same question answered by two models. Nothing is
+    recomputed: both sides are read from stored sample rows.
+    """
+    conn = db.connect()
+    try:
+        runs = {}
+        for rid in (run_a, run_b):
+            row = conn.execute(
+                "SELECT e.*, v.slug AS env FROM eval_runs e JOIN environments v"
+                " ON v.id = e.env_id WHERE e.id = ?", (rid,)).fetchone()
+            if row is None:
+                return {"error": f"no eval run #{rid}"}
+            runs[rid] = dict(row)
+        samples = {}
+        for rid in (run_a, run_b):
+            samples[rid] = {
+                (s["example_index"], s["rollout_index"]): s["reward"]
+                for s in conn.execute(
+                    "SELECT example_index, rollout_index, reward FROM samples"
+                    " WHERE eval_run_id = ?", (rid,)).fetchall()
+            }
+    finally:
+        conn.close()
+
+    keys = sorted(set(samples[run_a]) | set(samples[run_b]))
+    rows, better, worse, same = [], 0, 0, 0
+    for ex, ro in keys:
+        a = samples[run_a].get((ex, ro))
+        b = samples[run_b].get((ex, ro))
+        delta = None if a is None or b is None else b - a
+        if delta is not None:
+            if delta > 1e-9:
+                better += 1
+            elif delta < -1e-9:
+                worse += 1
+            else:
+                same += 1
+        rows.append({"example": ex, "rollout": ro, "a": a, "b": b, "delta": delta})
+
+    def head(rid):
+        r = runs[rid]
+        return {"id": r["id"], "model": r["model"], "env": r["env"],
+                "mean_reward": r["mean_reward"], "num_examples": r["num_examples"],
+                "rollouts_per_example": r["rollouts_per_example"],
+                "status": r["status"], "started_at": r["started_at"]}
+
+    ma, mb = runs[run_a]["mean_reward"], runs[run_b]["mean_reward"]
+    return {
+        "a": head(run_a), "b": head(run_b),
+        "same_env": runs[run_a]["env"] == runs[run_b]["env"],
+        "delta": None if ma is None or mb is None else mb - ma,
+        "counts": {"better": better, "worse": worse, "same": same},
+        "rows": rows,
+    }
+
+
 def _eval_detail(run_id: int) -> dict | None:
     conn = db.connect()
     try:
@@ -882,6 +999,10 @@ def build_app():
             # and uvicorn decodes %2F back to / before routing
             Route("/api/environments/{env_id:path}", endpoint(_environment_detail)),
             Route("/api/evals", endpoint(_evals)),
+            Route("/api/evals/compare/{run_a:int}/{run_b:int}",
+                  endpoint(_eval_compare)),
+            Route("/api/evals/{run_id:int}/episode/{example:int}/{rollout:int}",
+                  endpoint(_episode_turns)),
             Route("/api/evals/{run_id:int}", endpoint(_eval_detail)),
             Route("/api/training", endpoint(_training)),
             Route("/api/training/{run_id:int}", endpoint(_training_detail)),
