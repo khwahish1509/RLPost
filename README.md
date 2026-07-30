@@ -135,8 +135,26 @@ much its notebook lifts a frozen reader on questions about earlier sessions.
 Untrained, the model's notes score **−0.03** (worse than no notes at all);
 after 30 GRPO steps on a free T4, **+0.49 on held-out conversations** — the
 reader goes from 17% to 65% accuracy using its notebook. The lab's own
-inspection keeps it honest: the learned strategy so far is verbatim retention,
-not full selection — that gap is the next run.
+inspection kept it honest: that model learned *verbatim retention*, not
+selection — it fit only because the cap barely bound.
+
+**So the cap was tightened until copying was impossible.** Six sessions of
+chatter against a 350-character notebook — a dump overflows 3.6×. Three
+models, same held-out conversations, same reader:
+
+```
+untrained    -0.133   notebook 272 chars, keeps the chatter, loses the facts
+S3 copier    +0.100   notebook 764 chars → truncated in 10/10 streams
+S3b trained  +0.367   notebook 221 chars → fits in 10/10 streams
+```
+
+The copier's collapse (+0.486 → +0.100 once its cap actually bound) is the
+diagnosis confirmed. What the new model learned, read off its own notebooks:
+**compression** — prose rewritten as dense `Key: Value` pairs, updates
+sometimes encoded outright ("Matcha: Not. Cocoa: Present."). Facts recalled
+0.87 vs the copier's 0.52. What it has *not* learned: dropping other people's
+details (every abstention trap survives) or reliably deleting stale values.
+Fit-the-budget, not yet choose-what-matters — and the lab says so.
 
 **And the skill transfers.** Tested across three drift rungs it never trained
 on (reuse hints removed · 5 distractors instead of 3 · 12 tasks instead of 8),
