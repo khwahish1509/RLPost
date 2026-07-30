@@ -128,6 +128,16 @@ overflowed at 649 chars keeping 11 distractors and losing what mattered. A
 0.6B model, trained in this lab, learned to *select what's worth remembering* —
 and it generalizes to streams it never saw.
 
+**And the skill now trains on real language.** The `memory-stream` environment
+generates multi-session user dialogues — stable facts, updated facts (only the
+latest counts), chatter, and attribution traps — and rewards the Scribe by how
+much its notebook lifts a frozen reader on questions about earlier sessions.
+Untrained, the model's notes score **−0.03** (worse than no notes at all);
+after 30 GRPO steps on a free T4, **+0.49 on held-out conversations** — the
+reader goes from 17% to 65% accuracy using its notebook. The lab's own
+inspection keeps it honest: the learned strategy so far is verbatim retention,
+not full selection — that gap is the next run.
+
 **And the skill transfers.** Tested across three drift rungs it never trained
 on (reuse hints removed · 5 distractors instead of 3 · 12 tasks instead of 8),
 the prompted base model degrades — 0.536 / 0.518 / 0.443 — while the trained
