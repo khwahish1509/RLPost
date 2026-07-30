@@ -1,0 +1,29 @@
+# S3b: force TRUE SELECTION on conversational memory. S3 taught retention —
+# the model copies everything verbatim, and at 4 sessions the 600-char cap
+# barely binds, so dumping survives (the S2 lesson repeating in language).
+# Here the stream is ~3x the cap: 6 sessions, 4 distractors each, 2 updated
+# facts, notebook capped at 350 chars. Copy-everything now truncates away
+# tail facts; only keep-the-user's-latest-facts fits. Same reward (Lift via
+# the frozen fake reader), same anti-cheat trio.
+
+model = "Qwen/Qwen3-0.6B"
+max_steps = 30
+batch_size = 4
+rollouts_per_example = 4
+learning_rate = 5e-5
+checkpoint_every = 5
+seed = 0
+max_new_tokens = 512
+temperature = 1.0
+micro_batch_size = 1
+enable_thinking = false
+# lift starts negative for an untrained scribe on this curriculum
+trainability_window = [-1.0, 0.85]
+
+[lora]
+r = 16
+alpha = 32
+
+[[env]]
+id = "memory-stream"
+args = { reader_model = "fake", num_sessions = 6, facts_per_stream = 5, updates_per_stream = 2, distractors_per_session = 4, num_questions = 6, notebook_char_cap = 350 }
