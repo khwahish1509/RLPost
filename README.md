@@ -152,9 +152,19 @@ The copier's collapse (+0.486 → +0.100 once its cap actually bound) is the
 diagnosis confirmed. What the new model learned, read off its own notebooks:
 **compression** — prose rewritten as dense `Key: Value` pairs, updates
 sometimes encoded outright ("Matcha: Not. Cocoa: Present."). Facts recalled
-0.87 vs the copier's 0.52. What it has *not* learned: dropping other people's
-details (every abstention trap survives) or reliably deleting stale values.
-Fit-the-budget, not yet choose-what-matters — and the lab says so.
+0.87 vs the copier's 0.52. What it had *not* yet learned: dropping other
+people's details or deleting stale values.
+
+**So those failures were priced into the reward — and the model learned to
+choose.** Two recurring traps per stream, trap and update questions counting
+double, training warm-started from the compression checkpoint. Held-out
+verdict: **+0.375** vs the compression model's −0.023 under the same rules
+(reader accuracy 74% vs 34%). The mechanism, counted across every held-out
+notebook: traps written down fell **13/16 → 3/16**; stale values kept fell
+**9/16 → 2/16**. Three training generations, each shortcut caught by reading
+the notebooks and each fix forced by curriculum design: retention →
+compression → **selection**. A 0.6B model, trained on free GPUs, that keeps
+your facts, refuses your neighbor's, and erases what's out of date.
 
 **And the skill transfers.** Tested across three drift rungs it never trained
 on (reuse hints removed · 5 distractors instead of 3 · 12 tasks instead of 8),
