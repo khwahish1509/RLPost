@@ -1,7 +1,8 @@
 # The full RL product loop, self-hosted: how it actually works end to end
 
-*nanolab v0.2 — the story, with receipts. Part I is the loop; Part II is what
-it was built to reach: a small model trained to choose what to remember.*
+*nanolab v1.0 — the story, with receipts. Part I is the loop; Parts II and
+III are what it was built to reach: a small model trained, over three
+generations, to choose what to remember.*
 
 ## The premise
 
@@ -148,6 +149,66 @@ answering on the old port, so the "base" evals had silently measured the
 trained model. The rows were deleted and re-run with an identity check before
 every eval. The discipline of distrusting your own good news is the product.
 
+## Part III — conversational memory: three generations of a skill
+
+Arithmetic chains prove mechanics; the real target is language. The
+`memory-stream` environment generates multi-session user dialogues with four
+ingredient types: **stable facts** ("we adopted a cat — named him Ravi"),
+**updated facts** ("I live in Pune now" — only the latest value counts),
+**chatter** (one-off noise), and **attribution traps** — *other people's*
+details ("my neighbor's dog Anya…") that poison a later question if the
+notebook keeps them. After each session the Scribe rewrites a capped
+notebook; a frozen reader then answers held-out questions from the notebook
+alone. Question types are graded strictly: update questions fail append-only
+notes (old value present = wrong); abstention questions fail sloppy
+attribution (trap present = wrong). This design follows where the 2025–26
+literature converged — fixed-budget memory rewritten per segment (MemAgent),
+downstream-QA accuracy as the reward (Mem-α) — at a thousandth of the compute.
+
+**The starting point was negative.** An untrained 0.6B Scribe's notebooks
+made the reader *worse than no notes at all* (Lift −0.028, eval #32): it kept
+the trap lines and the chatter and dropped the facts.
+
+**Three training generations followed, each shortcut caught by reading
+notebooks, each fix a redesigned curriculum — never a plea:**
+
+| generation | curriculum | held-out result | what it actually learned |
+|---|---|---|---|
+| S3 | 4 sessions, loose 600-char cap | −0.028 → **+0.486** | *verbatim retention* — copied everything; the cap barely bound |
+| S3b | 6 sessions vs a 350-char cap (dump overflows 3.6×) | **+0.367**, while the S3 copier collapses to +0.100 here | *compression* — dense `Key: Value` notes (221 chars, 0/10 over cap) — but still wrote down every trap |
+| S3c | 2 recurring traps/stream; trap & update questions weighted 2×; warm-started from S3b | **+0.375** vs S3b's −0.023 under the same rules | *selection* |
+
+The S3c mechanism, counted across every held-out notebook (cap applied as
+the reader sees it): **traps written down 13/16 → 3/16; stale values kept
+9/16 → 2/16**; abstention accuracy 0.19 → 0.81; update accuracy 0.19 → 0.75;
+plain-fact recall paid a choosiness tax, 0.75 → 0.62. Retention →
+compression → selection: the reward-hacking law, run three times on purpose.
+
+**A real reader confirms it.** The same frozen notebooks, re-graded by grok
+instead of the deterministic checker: S3c **+0.352** · S3b +0.011 ·
+untrained +0.091 (vs +0.375 / −0.023 / −0.182 under the checker). The
+trained lift survives a real reader essentially unchanged. The interesting
+nuance: a smart reader partially *rescues* bad notebooks — grok reasons
+about attribution and refuses traps the checker falls for — which makes the
+trained margin the conservative number.
+
+**And the transfer question gets a precise answer.** A second generator the
+Scribe never trained on — standup-style work streams (projects, deadlines,
+clients, budgets; trap flavours are other teams' managers and vendors) —
+zero retraining: S3c +0.159 · S3b +0.182 · untrained −0.159. Read with the
+mechanism counts, that decomposes cleanly: **structured retention and
+update-replacement transfer** (S3c still deletes stale values out-of-domain,
+3/16 kept); **fine-grained attribution filtering does not** (traps written
+10/16 out-of-domain vs 3/16 at home — the filter keyed on personal-domain
+surface cues). At 0.6B with single-domain training, part of "what to
+remember" is a general skill and part is domain habit. The obvious next
+experiment is mixed-domain training; it is left as exactly that.
+
+**Scope, stated plainly:** n=8–12 per verdict, synthetic dialogues from
+seeded generators, a deterministic checker as the training-time reader, one
+model size, no public benchmark run yet. These are the claims' boundaries;
+inside them, every number has a row.
+
 ## What made it work at $0
 
 Free GPUs die mid-run and free APIs throttle, so the engineering is built
@@ -165,9 +226,10 @@ disagree. As of v0.2 the UI renders this story as a living paper — every
 number above wears a footnote mark that opens the raw rollout rows behind it.
 Nothing in this writeup is a claim without a row behind it.
 
-## What v0.2 is, in one sentence
+## What v1.0 is, in one sentence
 
-A self-hosted laboratory that trains AI models and proves the training worked
-— and its flagship experiment taught a tiny model the skill of choosing what
-to remember, showed the skill transfers under drift, and kept the receipts
-for every step, including its own false starts.
+A self-hosted laboratory that trains AI models and proves the training
+worked — and its flagship experiment taught a tiny model, over three
+curriculum generations, the skill of choosing what to remember: verified by
+a real reader, decomposed under domain transfer, and receipted at every
+step, including its own false starts.
