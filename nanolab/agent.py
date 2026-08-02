@@ -36,7 +36,9 @@ from pathlib import Path
 from . import db
 
 NOTEBOOK_CAP = 400
-SCRIBE_ADAPTER = Path("adapters") / "scribe_s2" / "step00029"
+# the S3c selection checkpoint: trained on conversational streams to keep the
+# user's facts, refuse other people's details, and replace outdated values
+SCRIBE_ADAPTER = Path("adapters") / "memory_s3c" / "step00029"
 SCRIBE_BASE = "Qwen/Qwen3-0.6B"
 
 ASSISTANT_SYSTEM = (
