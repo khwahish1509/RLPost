@@ -195,3 +195,31 @@ def test_weighted_lift_makes_traps_expensive():
     weighted = run({"abstention": 3.0})
     # same behaviour, harsher penalty when abstention failures cost more
     assert weighted < flat
+
+
+def test_work_domain_streams_are_well_formed_and_distinct():
+    from memory_stream.worklogs import generate_work_stream
+
+    w = generate_work_stream(5, updates_per_stream=2, abstentions_per_stream=2,
+                             num_questions=8)
+    assert w.to_info() == generate_work_stream(5, updates_per_stream=2,
+                                               abstentions_per_stream=2,
+                                               num_questions=8).to_info()
+    text = "\n".join(w.sessions)
+    for q in w.questions:
+        if q.kind == "abstention":
+            assert q.trap in text and q.answer == "unknown"
+        else:
+            assert q.answer in text
+    kinds = [q.kind for q in w.questions]
+    assert kinds.count("update") == 2 and kinds.count("abstention") == 2
+    # a genuinely different world from the personal domain
+    p = generate_stream(5)
+    assert w.to_info() != p.to_info()
+
+
+def test_domain_flows_through_env():
+    env = load_environment(reader_model="fake", domain="work", num_train_streams=2)
+    text = env.get_dataset()[0]["prompt"][1]["content"]
+    assert any(word in text for word in ("sprint", "client", "budget", "sync",
+                                          "project", "CI", "retro", "room"))

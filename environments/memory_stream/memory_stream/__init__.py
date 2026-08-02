@@ -22,6 +22,7 @@ import verifiers as vf
 
 from .dialogues import EVAL_SEED_BASE, generate_stream
 from .reader import build_reader
+from .worklogs import generate_work_stream
 
 NOTEBOOK_CHAR_CAP = 600
 
@@ -80,12 +81,13 @@ class MemoryStreamEnv(vf.MultiTurnEnv):
 def _build_dataset(num_streams: int, seed_base: int, num_sessions: int,
                    facts_per_stream: int, updates_per_stream: int,
                    distractors_per_session: int, num_questions: int, cap: int,
-                   abstentions_per_stream: int = 1):
+                   abstentions_per_stream: int = 1, domain: str = "personal"):
     from datasets import Dataset
 
+    gen = generate_stream if domain == "personal" else generate_work_stream
     rows = []
     for seed in range(seed_base, seed_base + num_streams):
-        stream = generate_stream(
+        stream = gen(
             seed, num_sessions=num_sessions, facts_per_stream=facts_per_stream,
             updates_per_stream=updates_per_stream,
             distractors_per_session=distractors_per_session,
@@ -119,6 +121,7 @@ def load_environment(
     num_questions: int = 6,
     abstentions_per_stream: int = 1,
     question_weights: dict | None = None,
+    domain: str = "personal",
 ):
     reader_model = reader_model or os.environ.get("NANOLAB_READER_MODEL", "fake")
     reader_base_url = reader_base_url or os.environ.get("NANOLAB_API_BASE_URL", "")
@@ -168,10 +171,10 @@ def load_environment(
         dataset=lambda: _build_dataset(
             num_train_streams, 0, num_sessions, facts_per_stream,
             updates_per_stream, distractors_per_session, num_questions,
-            notebook_char_cap, abstentions_per_stream),
+            notebook_char_cap, abstentions_per_stream, domain),
         eval_dataset=lambda: _build_dataset(
             num_eval_streams, EVAL_SEED_BASE, num_sessions, facts_per_stream,
             updates_per_stream, distractors_per_session, num_questions,
-            notebook_char_cap, abstentions_per_stream),
+            notebook_char_cap, abstentions_per_stream, domain),
         rubric=rubric,
     )
