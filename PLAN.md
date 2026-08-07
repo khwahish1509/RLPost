@@ -71,6 +71,7 @@ Done when: `nanolab env install primeintellect/alphabet-sort && nanolab env list
 - [x] **THE ANCHOR — PASSED 2026-07-16**: identical config (alphabet-sort, grok-4.20-0309-non-reasoning, n=10, r=1, T=0.0, c=1) gives identical results on both sides — avg 0.875, std 0.216, per-example rewards equal to every decimal. Re-pass command pair:
   `vf-eval alphabet-sort -k XAI_API_KEY -b https://api.x.ai/v1 -m grok-4.20-0309-non-reasoning -n 10 -r 1 -c 1 -T 0.0 --disable-tui` then
   `nanolab eval run alphabet-sort -m grok-4.20-0309-non-reasoning -n 10 -r 1 -c 1 -T 0.0 --force`
+- [x] **Anchor evidence committed (2026-08-07)** — `evidence/anchor/` holds the per-example receipt (rewards, prompt/completion digests, versions) outside the gitignored `results/`, plus `scripts/verify_anchor.sh` which re-runs both sides and diffs them. Provenance stated honestly in `evidence/anchor/README.md`: the nanolab side is receipted; the original `vf-eval` side's `results.jsonl` was never written to disk (its env worker died first), so it is reproducible on demand rather than archived.
 
 Done when (**THE ANCHOR**): on an identical config (env, model, seed, n), `nanolab eval run` matches `vf-eval`'s numbers. Every later refactor must re-pass this check. ✅
 
@@ -93,7 +94,7 @@ Done when: a 50-step run completes (surviving at least one restart via resume), 
 
 - [x] **Two-instrument addendum (2026-07-20)**: the official station head-to-head at n=32 with a 512-token budget reads base 0.625 vs trained 0.562 (Δ −0.062, within noise), while the 256-token exam reads base 0.375 vs trained 0.500 (Δ +0.125). Diagnosis: the base loses heavily to truncation at 256; training (run at 256) taught budget-fit answers. The improvement is real **within the training regime** and evaporates outside it — run 2's collapse-scarred checkpoint is not a robust win. Run 3 (clean run) is the proper test; future comparisons must pin max_tokens.
 
-- [x] **RUN 3 — the clean pass (2026-07-20)**: lr 5e-5 × 40 steps, no collapse (max 0.891, healthy to the end). Kernel exam on 64 held-out questions: **base 0.422 → final checkpoint 0.562, Δ +0.141 (≈2.3σ)**. No checkpoint-hunting: the *last* checkpoint wins. Merged as train run #3 (adapters #16–19).
+- [x] **RUN 3 — the clean pass (2026-07-20)**: lr 5e-5 × 40 steps, no collapse (max 0.891, healthy to the end). Kernel exam on 64 held-out questions: **base 0.422 → final checkpoint 0.562 (27/64 → 36/64), Δ +0.141**. No checkpoint-hunting: the *last* checkpoint wins. Merged as train run #3 (adapters #16–19). **Significance, corrected 2026-08-07:** two-proportion test → z ≈ 1.6, p ≈ 0.11 — suggestive, not significant at n=64. The previously reported "≈2.3σ" used a one-sample SE (`sqrt(p(1-p)/n)` on the base rate) where a two-proportion SE belongs. McNemar's paired test is the right one here (same 64 questions both arms) but the kernel exam did not retain per-question pairs — **to-do: retain them on the next exam run.**
 
 Done when: a trained checkpoint beats its own pre-training baseline inside nanolab's own eval. **✅ DONE — cleanly, at n=64, on the final checkpoint.**
 

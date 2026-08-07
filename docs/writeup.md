@@ -35,7 +35,10 @@ tested it" but **anchoring**: on identical configs, nanolab reproduces the
 reference tool's numbers to every decimal (verified: 0.875 vs 0.875,
 per-example identical) — because it deliberately drives the same library code
 path rather than reimplementing it. Every later change to the rollout path
-re-runs that check.
+re-runs that check, and the per-example receipt is committed in the repo
+(`evidence/anchor/`) rather than living in gitignored output — with a note
+saying plainly which side of the original comparison was archived and which
+is only reproducible.
 
 ## Station 3: Training — GRPO + LoRA, and what three runs taught
 
@@ -57,9 +60,23 @@ Three runs, three lessons — reported honestly:
 measured inside the training kernel's own exam):
 
 ```
-base            0.422
-trained         0.562     Δ +0.141  (≈2.3σ)
+base            0.422     27/64
+trained         0.562     36/64     Δ +0.141
 ```
+
+**What that delta is and isn't.** Two-proportion test (pooled SE 0.088):
+**z ≈ 1.6, two-sided p ≈ 0.11**. The direction is right and the mechanism is
+visible in the curve, but at n=64 this is *suggestive, not significant* —
+call it a clean positive result, not a proven one. An earlier draft of this
+writeup reported "≈2.3σ"; that came from a one-sample standard error
+(`sqrt(p(1-p)/n)` on the base rate alone) where a two-proportion SE belongs.
+The correction is logged here rather than quietly edited out, because a lab
+that hides its own arithmetic errors is not measuring anything. Footnote on
+the footnote: because both arms answer the *same* 64 questions, McNemar's
+paired test is the correct one and would likely read higher — but the
+kernel's exam did not retain per-question pairs, so the unpaired figure above
+is the conservative one we can actually defend. Retaining those pairs is a
+fixed to-do for the next exam run.
 
 Two lessons worth highlighting. First, from run 2: **final ≠ best** — its
 final checkpoint scored 0.000 after collapse while its step-19 peak scored

@@ -1,0 +1,124 @@
+{
+  "summary": {
+    "what": "THE ANCHOR \u2014 nanolab eval station vs the reference vf-eval tool on an identical config",
+    "env": "alphabet-sort",
+    "env_version": "0.1.12",
+    "vf_version": "0.2.0",
+    "vf_commit": "31dc0a64426f7d2c99095d3a8a961f09fdac9567",
+    "model": "grok-4.20-0309-non-reasoning",
+    "base_url": "https://api.x.ai/v1",
+    "num_examples": 10,
+    "rollouts_per_example": 1,
+    "temperature": 0.0,
+    "max_concurrent": 1,
+    "date": "2026-07-16",
+    "n": 10,
+    "mean_reward": 0.8745119703540165,
+    "stdev_reward": 0.21620001671512148,
+    "avg_error": 0.0,
+    "per_example_rewards": [
+      0.6095794231167655,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      0.7900575643740181,
+      1.0,
+      1.0,
+      0.3454827160493828,
+      1.0
+    ]
+  },
+  "per_example": [
+    {
+      "example_id": 0,
+      "prompt_sha256": "f5d7f67fc6896453",
+      "completion_sha256": "84538d41bf75eeff",
+      "reward": 0.6095794231167655,
+      "weighted_reward": 0.6095794231167655,
+      "num_turns": 2.0,
+      "error": null
+    },
+    {
+      "example_id": 1,
+      "prompt_sha256": "94d27c4c88bf661e",
+      "completion_sha256": "b338918c6e6bf7d3",
+      "reward": 1.0,
+      "weighted_reward": 1.0,
+      "num_turns": 1.0,
+      "error": null
+    },
+    {
+      "example_id": 2,
+      "prompt_sha256": "a71727f0446fbad9",
+      "completion_sha256": "cab5cab7d5f74ed0",
+      "reward": 1.0,
+      "weighted_reward": 1.0,
+      "num_turns": 1.0,
+      "error": null
+    },
+    {
+      "example_id": 3,
+      "prompt_sha256": "0f4b444d12673dc9",
+      "completion_sha256": "684ca07d8c99a0f9",
+      "reward": 1.0,
+      "weighted_reward": 1.0,
+      "num_turns": 1.0,
+      "error": null
+    },
+    {
+      "example_id": 4,
+      "prompt_sha256": "3440981bf9aff1d8",
+      "completion_sha256": "1200bf6beec65b7b",
+      "reward": 1.0,
+      "weighted_reward": 1.0,
+      "num_turns": 1.0,
+      "error": null
+    },
+    {
+      "example_id": 5,
+      "prompt_sha256": "21ca217a7361a684",
+      "completion_sha256": "38ebe330b32b0775",
+      "reward": 0.7900575643740181,
+      "weighted_reward": 0.7900575643740181,
+      "num_turns": 2.0,
+      "error": null
+    },
+    {
+      "example_id": 6,
+      "prompt_sha256": "09145335c28460b7",
+      "completion_sha256": "289b0a962df6ca02",
+      "reward": 1.0,
+      "weighted_reward": 1.0,
+      "num_turns": 1.0,
+      "error": null
+    },
+    {
+      "example_id": 7,
+      "prompt_sha256": "9b7f735fd61b9220",
+      "completion_sha256": "8735163a19258080",
+      "reward": 1.0,
+      "weighted_reward": 1.0,
+      "num_turns": 1.0,
+      "error": null
+    },
+    {
+      "example_id": 8,
+      "prompt_sha256": "31ba5e403c18b7d5",
+      "completion_sha256": "142bd2987d51d569",
+      "reward": 0.3454827160493828,
+      "weighted_reward": 0.3454827160493828,
+      "num_turns": 1.0,
+      "error": null
+    },
+    {
+      "example_id": 9,
+      "prompt_sha256": "0155ba774f831ac5",
+      "completion_sha256": "38eaa67dc482e259",
+      "reward": 1.0,
+      "weighted_reward": 1.0,
+      "num_turns": 1.0,
+      "error": null
+    }
+  ]
+}

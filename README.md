@@ -17,15 +17,19 @@ lab notebook (`nanolab report`) render it. No cloud, no accounts, no build steps
   reference `vf-eval` tool builds and executes it through the same library code
   path. Verified live: identical config → **0.875 vs 0.875**, matching to every
   decimal on every example — and re-verified after each change to the rollout
-  path.
+  path. The per-example receipt is committed at
+  [`evidence/anchor/`](evidence/anchor/); re-run it yourself with
+  `scripts/verify_anchor.sh`.
 - **Training produces a measurably better model.** The clean run (Qwen3-0.6B,
   gsm8k, GRPO+LoRA, lr 5e-5 × 40 steps on a free Kaggle T4, launched by API):
-  **base 0.422 → trained 0.562 on 64 held-out questions (+0.141, ≈2.3σ)** —
-  the *final* checkpoint, no cherry-picking, no collapse. An earlier hotter
-  run also taught the honest footnote: gains are measured within the
-  training-time token budget (256), and the lab's own instruments caught and
-  quantified that regime-dependence before it could be over-claimed. Every
-  answer behind every number is in the db.
+  **base 0.422 → trained 0.562 on 64 held-out questions (27/64 → 36/64,
+  +0.141)** — the *final* checkpoint, no cherry-picking, no collapse. Stated
+  precisely: a two-proportion test gives **z ≈ 1.6, p ≈ 0.11** — suggestive
+  at this sample size, not significant, and we say so rather than rounding it
+  up. An earlier hotter run also taught the honest footnote: gains are
+  measured within the training-time token budget (256), and the lab's own
+  instruments caught and quantified that regime-dependence before it could be
+  over-claimed. Every answer behind every number is in the db.
 - **Trainability gate, hard-coded.** Training refuses to start unless the
   baseline reward sits in the 10–80% window (GRPO learns from mixed groups;
   all-failures or all-successes teach nothing). This gate caught two real bugs
@@ -184,7 +188,7 @@ signal (Lift 0.857); the note-taking skill is trainable (0.548 → 1.000 on
 12/12 held-out streams); the skill transfers under drift (perfect across
 three rungs while the prompted baseline decays); and the four-column
 instrument attributes the gain (KNOWLEDGE-DOMINANT). The web app renders it
-all as a living paper — every number opens its raw rollouts. 87 tests, CI.
+all as a living paper — every number opens its raw rollouts. 99 tests, CI.
 Full story: [docs/writeup.md](docs/writeup.md). Next (v0.3): the interactive
 Memory Agent — chat where the trained Scribe maintains the notebook live.
 
