@@ -1,126 +1,131 @@
-# Share posts for the blog
+# Share posts — paste these as-is
 
-## LinkedIn
+Replace `PASTE_DEVTO_URL` with your Dev.to article URL.
 
----
-
-I spent two weeks teaching a tiny AI model what's worth remembering.
-
-It cheated on me twice.
-
-The setup: a 0.6B model (the "Scribe") rewrites a small notebook after each chat session. A second, frozen model answers questions later using ONLY that notebook. If the notes help, the Scribe gets rewarded. That's it — reinforcement learning on note-taking.
-
-Generation 1: the score jumped from negative to +0.49. Success? I read its notebooks. It had learned to copy the entire conversation word for word. Not memory — photocopying.
-
-Generation 2: I shrank the notebook until copying couldn't fit. It learned real compression — dense "Key: Value" notes. But it still wrote down the neighbor's dog's name every single time (a planted trap — the dog isn't the user's).
-
-Generation 3: I made junk expensive in the reward. It finally learned to choose: traps written fell from 13/16 to 3/16, outdated values kept fell from 9/16 to 2/16.
-
-Then the real experiment: I dropped it into a world it had never seen — workplace chat instead of personal chat. No retraining.
-
-Result: half the skill transferred.
-✅ Structured notes and updating old facts — traveled perfectly.
-❌ Refusing other people's details — collapsed. It had learned the *sound* of personal-life junk ("my neighbor's..."), not the concept.
-
-The lesson for anyone building AI agent memory: a trained memory skill is a bundle, and the parts travel differently. Test which parts before you trust it in a new domain.
-
-Everything ran on my laptop + free cloud GPUs. ~$5 total. Every shortcut was caught by reading actual outputs, never by trusting scores.
-
-Full story with all the numbers (including my own mistakes — there were four): [BLOG LINK]
-
-Code: github.com/khwahish1509/RLPost
+This is two projects, not one:
+1. A training lab — Prime Intellect's loop, self-hosted
+2. A memory experiment — Letta's idea, trained in that lab
 
 ---
 
-## X / Twitter thread
+## LinkedIn (one post)
+
+Copy everything between the lines.
 
 ---
 
-1/
-I trained a 0.6B model to decide what's worth remembering.
+I didn't just train a memory model. I built the training loop first — then used it.
 
-It cheated twice. I caught it both times by reading its notebooks.
+Two weeks. One laptop. Free GPUs. About $5. Every number is from a real run.
 
-And when I moved it to a new domain, exactly half the skill transferred.
+**Part 1 — the training lab**
 
-The whole story, on a laptop + free GPUs (~$5 total): 🧵
+I rebuilt Prime Intellect's product loop on my own machines: environments → eval → train → serve → eval again. One CLI. One database. No cloud product.
+
+Receipts, not slides:
+• The measuring stick matches the standard tool: 0.875 = 0.875, every question, every decimal
+• A 0.6B model on school math it had never seen: 27/64 → 36/64 (last save of the run, not a picked peak)
+• The trained adapter serves on my Mac as a normal API. The lab can measure its own product.
+
+That was the machine. It was never the point. Here's what it was for.
+
+**Part 2 — Letta-style memory, trained**
+
+Letta's bet: deciding what to remember is a skill you can teach, not a database you bolt on.
+
+So I trained a tiny 0.6B "Scribe." Its only job: rewrite a small notebook after each chat. A frozen reader later answers from the notebook alone. If the notes help, the Scribe gets paid.
+
+It cheated twice. I caught both by reading notebooks, not scores.
+
+Round 1: score jumped to +0.49. It had copied the whole conversation word for word.
+Round 2: I made the notebook too small to copy. It learned real compression. It still wrote down the neighbor's dog every time (not the user's dog).
+Round 3: I made junk expensive. Traps written 13/16 → 3/16. Old values kept 9/16 → 2/16.
+
+Then I dropped it into workplace chat it had never seen. No retraining.
+
+What transferred: structured notes, and updating old facts.
+What did not: whose facts they were (3/16 traps at home → 10/16 at work).
+
+Two different things, one laptop: a working RL loop, and a memory skill that only half-survived a new world.
+
+Full story: PASTE_DEVTO_URL
+Code: https://github.com/khwahish1509/RLPost
+
+---
+
+## X — post this first (single tweet)
+
+---
+
+I built two things on a laptop (~$5):
+
+1. Prime Intellect's RL loop, self-hosted: env → eval → train → serve → eval again.
+
+2. Letta-style memory: a 0.6B model that learned what to remember. It cheated first.
+
+PASTE_DEVTO_URL
+
+---
+
+## X — full thread (reply to that tweet, one box at a time)
+
+---
 
 2/
-The game: a tiny "Scribe" model rewrites a capped notebook after each chat session.
+Part 1 is a training project, not a memory demo.
 
-A frozen Reader later answers questions using ONLY the notebook.
+Prime Intellect sells: pick a task, measure a model, train, serve, measure again.
 
-Reward = how much the notes help the Reader vs no notes at all.
+I ran that whole loop on my machines. One CLI. One database. No hosted product.
 
-Untrained score: −0.03. Its notes were worse than nothing.
+---
 
 3/
-Training round 1: score jumps to +0.49 🎉
+Receipts from real runs:
 
-Then I read the notebooks.
+Ruler check: standard tool 0.875, my lab 0.875. Same questions. Every decimal.
 
-It had learned to copy the ENTIRE conversation verbatim. It scored well only because the notebook barely fit.
+School math, 64 new questions: 27 right → 36 right. Last save, not a picked peak.
 
-Models learn the laziest strategy that still gets rewarded. Always.
+Trained adapter served on my Mac. Lab measured its own product.
+
+---
 
 4/
-Round 2: I shrank the notebook until copying overflows 3.6×.
+That was week one. The loop was the machine.
 
-The copier collapsed to +0.10.
+Part 2 is Letta's idea: memory is a skill you train, not a database you search.
 
-The retrained model hit +0.37 with a genuinely new skill — compression:
+I pointed the same trainer at a tiny Scribe. It can only rewrite a capped notebook. A frozen reader scores the notes.
 
-"Ravi: Cat. Berlin: Living. Matcha: Not. Cocoa: Present."
-
-But it still wrote down the neighbor's dog. Every time.
+---
 
 5/
-Round 3: I planted 2 traps per conversation and made trap/update questions count double in the reward.
+It cheated.
 
-It finally learned to CHOOSE:
-• traps written: 13/16 → 3/16
-• stale values kept: 9/16 → 2/16
-• trap questions correct: 19% → 81%
+Round 1: +0.49. I read the notebooks. Copy-paste of the whole chat.
 
-Retention → compression → selection.
+Round 2: notebook too small to copy. Real compression. Still wrote the neighbor's dog every time.
+
+---
 
 6/
-"But maybe it just learned to please your grader?"
+Round 3: I priced junk. Traps 13/16 → 3/16. Stale facts 9/16 → 2/16.
 
-Fair. So I took the same frozen notebooks and had a real LLM (Grok) answer instead of my checker:
+Then a world it never saw (work chat, no retraining).
 
-+0.375 → +0.352. Barely moved.
+Notes + updates transferred. "Whose fact is this?" did not (3/16 traps → 10/16).
 
-Reader accuracy with its notes: 72% vs 36% without.
+---
 
 7/
-Now the real experiment. Everything was learned on PERSONAL chat (pets, cities, neighbors).
+Two projects:
 
-I dropped it into workplace standup talk — projects, deadlines, clients. Zero retraining.
+A self-hosted PI training loop that actually moves a model.
 
-Score fell from +0.375 to +0.159. But the notebooks show exactly WHAT broke:
+A Letta-style memory skill that only half-transfers out of domain.
 
-8/
-✅ Transferred: structured notes, and replacing outdated values (stale kept: 2/16 home, 3/16 at work — clean).
-
-❌ Did NOT transfer: refusing other people's details (3/16 → 10/16 traps written).
-
-It learned the SOUND of junk ("my neighbor's..."), not the concept.
-
-9/
-The takeaway for anyone building agent memory:
-
-A learned memory skill is a bundle. The parts travel differently.
-
-Structure & updating = portable skills.
-Attribution filtering (at 0.6B, one domain) = a domain habit wearing a skill's clothes.
-
-10/
-Honest limits: n=8–12 per test, my own synthetic tasks, one model size, no public benchmark yet (that's next).
-
-And the lab caught ME being wrong 4 times — too-easy task, one-regime gain, wrong statistic, wrong server answering.
-
-Full story: [BLOG LINK]
+Story: PASTE_DEVTO_URL
 Code: github.com/khwahish1509/RLPost
 
 ---

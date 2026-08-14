@@ -1,211 +1,220 @@
-# Two weeks, one laptop: I built an AI training lab, then taught a tiny model what's worth remembering
+# I taught a tiny AI what to remember. It cheated. Then it got good.
 
-*And found that only half the skill transferred.*
-
----
-
-AI models forget everything. Close the chat, and it's gone. Everyone building AI agents fights this the same way — save everything to a database, search it later. Engineering.
-
-I wanted to test a different idea: **what if deciding what to remember is a skill — something a model can be *taught*?**
-
-To find out, I first had to build the machine that could teach it. This is the story of both: the lab, and the experiment it was built for. Everything ran on my laptop and free cloud GPUs. Total spend: about $5.
+*Two weeks. One laptop. Free GPUs. About $5. Every number below is from a real run.*
 
 ---
 
-# Part 1: The machine
+Here is a notebook a tiny model wrote for me.
 
-## One rule before any code
-
-**Don't trust a number you didn't produce yourself.**
-
-Most AI results are a screenshot with no way to check it. I decided every number in this project would live in one database, with the raw model answers stored behind it. That rule shaped everything — and it caught me being wrong four separate times before anyone else could.
-
-## Check the ruler first
-
-The lab's first station measures models: give a model a task with an automatic grader, run it many times, average the scores.
-
-Before measuring anything, I checked the measuring stick itself. There's a standard open-source tool for these evaluations; I built my lab to drive that same code — not to reimplement it — and ran both on an identical setup:
+It had six chats to remember and a 350-character budget. This is what the next model actually saw — the rest got cut off:
 
 ```
-reference tool : 0.875
-my lab         : 0.875
+- my neighbor's dog Kabir kept barking all night.
+- watched an old western last night, decent.
+- watched a cooking show last night, decent.
+- long day, mostly meetings.
+- weather here has been surprisingly sunny.
+- slept badly, don't ask.
+- had a scare — turns out I'm allergic to lactose.
+- my cousin's dog Kabir kept barking all night.
+- we adopted
 ```
 
-Identical to every decimal, on every single question. If the ruler is wrong, everything after it is decoration. This check re-runs after any change to how answers are generated.
+It kept the neighbor's dog. Twice.
 
-## Training, and the run that collapsed
+It lost the cat's name. The city. The job. The drink they switched to. Cut off at *"we adopted"*.
 
-Training here is reinforcement learning: the model tries a task many times, good attempts get reinforced, and only a small add-on file changes (a LoRA adapter) — the base model stays frozen.
+That model had just scored **+0.486**. It looked like a win. It was cheating — copying everything, in order, until the page ran out.
 
-One guard rail first: **the lab refuses to train if the model's starting score is above 80% or below 10%.** Ace the task and there's nothing to teach; fail everything and there's no signal. This gate later saved an entire experiment.
+I caught it by reading the notebook. Not the score.
 
-Then three runs on a free cloud GPU, on school math:
+Then I made copying impossible. Then I made junk expensive. Then the same tiny model learned to choose. And then I put it in a world it had never seen, and only half the skill came with it.
 
-| Run | Setting | What happened |
-|---|---|---|
-| 1 | gentle, 50 steps | Ran perfectly. Learned nothing. Underdosed. |
-| 2 | aggressive, 100 steps | Great score by step 17 — then **collapsed to zero** by step 99. |
-| 3 | middle, stop early | Clean. |
-
-Run 2 is the one I think about. Judged by its *final* version, training destroyed the model. But I'd saved a snapshot every 10 steps, so I could go back and find the peak. **The last checkpoint is not the best checkpoint.**
-
-The clean run, on 64 questions the model had never seen: **42.2% → 56.2%**.
-
-Two honest footnotes, because they're the point of the project. First, when I redid the statistics properly, that gain is *suggestive, not significant* (p ≈ 0.11) — the sample is small, and my first write-up overstated it. Second, my own instruments caught that the gain is strongest under the answer-length limit the model trained with; give both models more room and the gap shrinks. Real improvement, narrower claim.
-
-## The loop closes
-
-The trained adapter serves on my Mac as a normal API endpoint — which means the lab can measure its own product. Tasks → measure → train → serve → measure again. Five stations, one laptop, $0.
-
-That was week one. The machine was never the point, though. Here's what it was for.
+This is that story. No screenshots of a demo. No "vibes." Real runs.
 
 ---
 
-# Part 2: Teaching memory
+## The scoreboard (real runs only)
+
+I built a small lab on my laptop called **nanolab**. It can measure a model, train it, serve it, and measure it again. Everything lands in one database, with the raw answers behind every number.
+
+Here is what the real runs showed.
+
+**The ruler works.** A standard eval tool scored **0.875**. My lab scored **0.875**. Same setup. Same questions. Same answers, to every decimal. If the ruler is wrong, nothing after it matters.
+
+**Training can move a small model.** Qwen3-0.6B — a model you can run on a laptop — on school math it had never seen: **27 / 64 right → 36 / 64 right** (42% → 56%). That's the *last* save of the run, not a cherry-picked peak. Free cloud GPU.
+
+**A memory skill can be taught.** I gave the model one job: rewrite a tiny notebook. A second model, frozen, later answers questions using *only* that notebook. Score = how much the notes help vs no notes at all.
+
+On number-puzzles it had never seen: **untrained 0.55 → trained 1.00**. **12 / 12 streams. Zero errors.**
+
+On chat: a real AI reading those notes went from **36% right with no notes → 72% with the trained notes**.
+
+**And then half of it failed in a new world.** Same model. No extra training. Workplace chat instead of personal chat. It still kept facts and updated old ones. It forgot whose facts they were.
+
+Those five things are the project. Everything else is how I got there.
+
+---
 
 ## The game
 
-A fake user chats with an assistant across several sessions. They mention facts: *"we adopted a cat — named him Ravi."* Facts change: *"I live in Pune now, not Berlin."* There's small talk. And there are **traps** — other people's details, like *"my neighbor's dog Anya kept barking all night."*
+A fake person chats over a few days.
 
-Two models play:
+- *"We adopted a cat — named him Ravi."*
+- Later: *"I live in Pune now, not Berlin."*
+- Small talk. Weather. TV.
+- Traps: *"My neighbor's dog Anya kept barking all night."*
 
-- **The Scribe** — a tiny 0.6B model whose only job is rewriting a notebook after each session. The notebook is capped — deliberately too small to hold everything.
-- **The Reader** — a frozen model that never learns and never sees the conversation. At the end, it answers questions using **only the notebook**.
+Two models play.
 
-The score is **Lift**: how much the notebook improves the Reader over having no notes. Useless notes score zero. Misleading notes score *negative*.
+**The Scribe** is tiny (0.6B). After each chat it rewrites a notebook. The notebook is too small to hold everything. That is the point.
 
-The questions are graded without mercy:
+**The Reader** never learns, and never sees the chat. At the end it answers from the notebook alone.
 
-- **Facts** — "What's my cat's name?" The detail must be in the notes.
-- **Updates** — wrong if the *old* value is still there. Adding without deleting fails.
-- **Traps** — "What's my dog's name?" Correct answer: *"unknown"* — the dog belongs to the neighbor. If the notebook copied that line, the Reader confidently gets it wrong.
+Questions are mean on purpose:
+
+- *What's my cat's name?* — the fact must be there.
+- *Where do I live?* — the old city still in the notes is a fail.
+- *What's my dog's name?* — the right answer is *"I don't know."* The dog is the neighbor's. If the notebook copied that line, the Reader says Anya with confidence.
 
 A good notebook has to **keep**, **replace**, and **refuse**.
 
-## The experiment that refused to run
+---
 
-My first version used arithmetic chains instead of chat. Before training, I measured the untrained model — and it already scored **0.905**. The task only required copying numbers down, which the base model did perfectly. Nothing to teach. The trainability gate refused to run, and it was right.
+## First, the lab said no
 
-I rebuilt the task to require judgment — needed values buried in junk, notebook too small for both. The untrained score dropped to 0.548. *Then* training worked: **0.548 → 1.000** on unseen chains. Proof the machinery could teach selection — on arithmetic. Language turned out to be a three-act story.
+I started with number puzzles, not chat. Later puzzles need numbers from earlier ones. The Scribe's job: write them down.
 
-## Act 1: it learned to copy
+Before training, I measured the untrained model. It already scored **0.905**. It was just copying numbers. Nothing to teach.
 
-On real conversations, the untrained model scored **−0.028** — negative. Its notes made the Reader *worse than no notes*: it wrote down the small talk and the neighbor's dog, and dropped the facts.
+So the lab **refused to train**. Starting score too high. That refusal was the right result. A perfect score on an easy task is a fake win.
 
-After training: **+0.486**. Big jump — until I read the notebooks. It had learned to **copy everything word for word**, and scored well only because the notebook happened to be just big enough.
+I made the puzzles harder: needed numbers buried in junk, notebook too small for both. Untrained score fell to **0.55**.
 
-**A model learns the laziest strategy that still gets rewarded.** Never the elegant one you imagined.
+Then training worked. Held-out puzzles, never seen:
 
-## Act 2: it learned to compress
+**0.55 → 1.00. 12 out of 12. Zero errors.**
 
-I made copying impossible: more sessions, more noise, and a notebook the conversation overflows **3.6 times over**.
+The trained notebook was 189 characters. Zero junk lines.
 
-The copier collapsed from +0.486 to **+0.100** — its notebooks got cut off, losing the facts at the end. And the newly trained model, at **+0.367**, showed a genuinely new skill. Its notebooks stopped being sentences:
+I also tried three harder versions it never trained on — no hint labels, more junk, longer chains. The untrained model got worse (0.54 → 0.52 → 0.44). The trained one stayed at **1.00** every time.
+
+So the machine can teach "keep what matters." On numbers. Chat was harder.
+
+---
+
+## Chat, act 1 — it copied
+
+Untrained, on chat, the notes made the Reader *worse than no notes*: **−0.028**. It wrote the small talk and the neighbor's dog. It dropped the facts.
+
+I trained it. Score jumped to **+0.486**. Reader went from 17% to 65%.
+
+Then I opened the notebooks. That's the one at the top of this post. Copy. Everything. In order.
+
+**A model learns the laziest trick that still gets paid.** Not the clever one you wanted.
+
+---
+
+## Chat, act 2 — it compressed
+
+I made copying lose. More chats. More noise. A notebook so small the full dump overflows **3.6 times**.
+
+The copier fell from +0.486 to **+0.100**. Its notes got cut off. The facts were at the end. Gone.
+
+A new run, same hard setup: **+0.367**. Notebooks stopped looking like sentences:
 
 ```
 Ravi: Cat. Berlin: Living. Lactose Allergy: Present.
 Matcha: Not. Cocoa: Present.
 ```
 
-221 characters. Fit every time. Real compression.
+221 characters. Fit every time. That's real. That's compression.
 
-But it still wrote down the neighbor's dog. Every single time.
-
-## Act 3: it learned to choose
-
-I made junk expensive: two traps per conversation, trap and update questions counting **double** in the reward, training warm-started from the compression model.
-
-Same unseen conversations, same grader:
-
-| Model | Lift |
-|---|---|
-| **Act 3 (selection)** | **+0.375** |
-| Act 2 (compression) | −0.023 |
-| Untrained | −0.182 |
-
-The compression champion drops *below zero* once junk is priced properly. And this time the *behaviour* changed, counted across every notebook:
-
-| Behaviour | Act 2 | **Act 3** |
-|---|---|---|
-| Wrote down the trap | 13 / 16 | **3 / 16** |
-| Kept the outdated value | 9 / 16 | **2 / 16** |
-| Trap questions right | 19% | **81%** |
-| Update questions right | 19% | **75%** |
-
-There was a cost: plain fact recall slipped from 75% to 62%. Choosy sometimes means dropping something you needed. Worth it here.
-
-**Retention → compression → selection.** Every shortcut caught by *reading the notebooks*, never the scores. Every fix a redesigned world, never a nicer prompt.
-
-## Did it just learn to please my grader?
-
-Fair question — my grader was a simple checker program. So I took the exact same notebooks, frozen, and had a real AI (Grok) answer the questions instead:
-
-| Model | My checker | **Real AI reader** |
-|---|---|---|
-| Act 3 | +0.375 | **+0.352** |
-| Act 2 | −0.023 | +0.011 |
-| Untrained | −0.182 | +0.091 |
-
-Barely moved. With the trained notebooks, the real reader answered at **72% versus 36% with no notes**.
-
-One lovely detail: the *untrained* model improves under a real reader. A smart reader rescues bad notes — it sees "my cousin's dog Kabir" and reasons *that's not the user's dog*, refusing a trap my checker fell for. Which makes the trained margin the **conservative** number.
+It still wrote down the neighbor's dog. Every time.
 
 ---
 
-# The finding: half the skill moved
+## Chat, act 3 — it chose
 
-Everything above was learned on **personal chat** — pets, cities, allergies, neighbors.
+I made junk expensive. Two traps per chat. Trap and update questions counted **double**. I started from the compression model, not from scratch.
 
-So I built a world the model had never seen: **workplace standup talk.** Projects, deadlines, clients, budgets. Different words, different rhythms, different traps — now it's *"the platform team's manager Lena."* No retraining. Just drop it in.
+Same new chats. Same grader.
 
-| Model | At home | **At work (never seen)** |
+| Model | Lift | Traps written | Old values kept |
+|---|---|---|---|
+| **Trained to choose** | **+0.375** | **3 / 16** | **2 / 16** |
+| Compression model | −0.023 | 13 / 16 | 9 / 16 |
+| Never trained | −0.182 | 8 / 16 | 6 / 16 |
+
+Trap questions: **19% → 81%**. Update questions: **19% → 75%**.
+
+Plain facts slipped a bit (75% → 62%). Choosy means you sometimes drop a real thing. Worth it here.
+
+**Copy → compress → choose.** I did not get there by asking nicer. I changed the game until the cheat stopped working. I knew it was a cheat because I read the notebooks.
+
+---
+
+## "Maybe it just learned to fool your grader?"
+
+My grader is a simple checker. Fair question.
+
+I froze the notebooks — same text, no retraining — and let a real AI (Grok) answer instead.
+
+| Model | My checker | Real AI |
 |---|---|---|
-| Act 3 (selection) | +0.375 | **+0.159** |
-| Act 2 (compression) | −0.023 | **+0.182** |
-| Untrained | −0.182 | **−0.159** |
+| **Choose** | **+0.375** | **+0.352** |
+| Compress | −0.023 | +0.011 |
+| Never trained | −0.182 | +0.091 |
 
-A big drop — and the two trained models tie. But the notebooks show exactly *what* broke:
+Barely moved. With the trained notes, the real AI got **72% right vs 36% with an empty notebook**.
 
-**Transferred:**
-- **Structured note-taking.** Both trained models stay clearly positive in a world they never saw; untrained stays hopeless.
-- **Replacing outdated values.** At home: stale values kept 2/16. At work: still just **3/16**. Clean transfer.
-
-**Did not transfer:**
-- **Refusing other people's details.** At home: 3 traps written out of 16. At work: **10 out of 16.**
-
-The filter never learned the *idea* of "this belongs to someone else." It learned the *sound* of it — "my neighbor's…", "my cousin's…". Say the same trap in office language and it walks right past.
-
-So here's the sentence I'd want another builder to take away:
-
-> **A learned memory skill is a bundle, and the parts travel differently. Structure and updating are portable skills. Attribution filtering — at this size, trained on one domain — is a domain habit wearing a skill's clothes.**
-
-The obvious fix is training on mixed domains. I haven't run it yet. I'd rather tell you that than imply I have.
+Funny bit: bad notes look *better* to a smart reader. It sees *"my cousin's dog"* and thinks *that's not your dog*. My checker falls for it. So the trained model's lead is the *smaller*, safer number.
 
 ---
 
-## What I'm not claiming
+## The test that mattered
 
-- **Small scale.** 8–12 test conversations per verdict, one seed. Directional, not statistically heavy.
-- **My own tasks.** Synthetic conversations from generators I wrote. Real chat is messier.
-- **One model size.** 0.6B. Published RL-memory work (Memory-R1, Mem-α) runs at 3B–14B, and my transfer failure may partly be a capacity limit — I can't rule that out without a bigger model.
-- **No public benchmark yet.** The field has standard tests (LongMemEval, LoCoMo); production systems report ~92–94 on them. My numbers aren't comparable, because I haven't run those tests. That's next.
-- **The raw data lives in my lab's database** — every conversation, notebook, and answer, inspectable in the app. The public repo carries the code, the environments, and the technical write-up to regenerate everything; it does not yet ship the database itself. Making the headline numbers one-command reproducible for strangers is on the list, and I'm saying so rather than pretending it's already true.
+All of that was personal chat. Pets. Cities. Neighbors.
 
-## Four rules I'd keep
+I built a second world the model had never seen: **work standups**. Projects, deadlines, clients. Traps like *"the platform team's manager Lena."* No extra training. Drop it in.
 
-1. **Check your ruler first.** The 0.875 = 0.875 anchor is why anything after it was trustworthy.
-2. **Measure before you train.** The gate that refused the too-easy task saved me from publishing a fake win.
-3. **Read the outputs, not the scores.** Scores said *something* changed. Only the notebooks said *what* — and twice the answer was "it's cheating."
-4. **Distrust your own good news.** An untrained model once scored suspiciously well; a leftover server on an old port was secretly serving the trained one. Those rows got deleted, and every test now asks the server "who are you?" first. The result you love is the one to check hardest.
+| Model | Home | Work (never seen) |
+|---|---|---|
+| Choose | +0.375 | **+0.159** |
+| Compress | −0.023 | **+0.182** |
+| Never trained | −0.182 | **−0.159** |
 
-That's the real theme. This lab caught me being wrong four times — a too-easy task, a one-regime gain, a wrong statistic, a wrong server. Each catch made the project smaller and truer.
+Both trained models still help. The untrained one still hurts. So *something* transferred.
+
+What, exactly?
+
+**Came with it**
+
+- Writing short structured notes
+- Replacing old facts (stale values kept: 2/16 at home, **3/16 at work**)
+
+**Did not**
+
+- Refusing other people's details (traps written: 3/16 at home, **10/16 at work**)
+
+It never learned the idea *"this belongs to someone else."* It learned the *sound* of it — *"my neighbor's…"*, *"my cousin's…"*. Say the same trap in office English and it writes it down.
+
+That's the sentence I want you to take:
+
+**A memory skill is a bundle. The parts don't travel together.** Keeping a fact and updating a fact can be real skills. Knowing whose fact it is — at this size, trained on one kind of chat — can just be a habit.
+
+I have not trained on mixed worlds yet. I'm saying that so I don't pretend I have.
 
 ---
 
-## Where this goes
+## What this is not
 
-Next, in order: a public benchmark number (LongMemEval), more repeats with error bars, a bigger model to separate "skill doesn't transfer" from "model too small," and the mixed-domain training my own results are begging for.
+Small tests: 8–12 chats per result. Tasks I wrote, not a public benchmark. One model size. I have not run LongMemEval or LoCoMo yet, so **don't compare these numbers to papers**. That's next.
 
-If you're building memory into an agent, the one thing worth taking today: **don't assume a fine-tuned memory model behaves the same outside its training data — ask which parts of the skill are actually portable.** Mine kept the facts and updated them faithfully in a world it had never seen. It just forgot whose facts they were.
+What it *is*: real training runs on a free GPU, real notebooks I read by hand, a second grader that didn't change the story, and a new world where half the skill stayed and half fell off.
 
-Code, environments, and the full technical write-up: **github.com/khwahish1509/RLPost**
+---
+
+If you build memory into an agent: **don't trust a fine-tune in a new domain until you check which part moved.** Mine kept the facts. It updated them. It forgot who they belonged to.
+
+Code and the full write-up: [github.com/khwahish1509/RLPost](https://github.com/khwahish1509/RLPost)
