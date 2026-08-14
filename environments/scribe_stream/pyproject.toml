@@ -2,6 +2,10 @@
 name = "scribe-stream"
 version = "0.1.0"
 description = "Stream environment for training a note-taking Scribe: reward is Lift — how much the notebook improves a frozen Player on later, dependent tasks."
+readme = "README.md"
+license = "MIT"
+authors = [{name = "Khwahish Vaid"}]
+tags = ["memory", "multi-turn", "rl", "notebook", "offline", "deterministic"]
 requires-python = ">=3.11"
 dependencies = [
     "verifiers>=0.2.0",

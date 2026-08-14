@@ -2,6 +2,10 @@
 name = "memory-stream"
 version = "0.1.0"
 description = "Conversational memory environment: a Scribe maintains a capped notebook across multi-session dialogues; reward is Lift — how much the notebook improves a frozen reader on questions about earlier sessions."
+readme = "README.md"
+license = "MIT"
+authors = [{name = "Khwahish Vaid"}]
+tags = ["memory", "multi-turn", "rl", "notebook", "long-horizon", "agent-memory"]
 requires-python = ">=3.11"
 dependencies = [
     "verifiers>=0.2.0",
