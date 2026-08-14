@@ -1,0 +1,20 @@
+{
+ "arm": "trained",
+ "conversations": 3,
+ "questions": 497,
+ "f1_answerable": 0.0133,
+ "abstention_accuracy": 1.0,
+ "overall": 0.2356,
+ "by_category": {
+  "1": 0.0406,
+  "2": 0.0,
+  "3": 0.034,
+  "4": 0.0069,
+  "5": 1.0
+ },
+ "notebook_chars": {
+  "conv-26": 350,
+  "conv-30": 350,
+  "conv-41": 350
+ }
+}
